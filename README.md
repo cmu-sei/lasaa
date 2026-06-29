@@ -1,1 +1,1 @@
-The first public release of LASAA will be available here shortly (by June 30, 2026).
+The first public release of LASAA will be available here shortly (by July 8, 2026).
