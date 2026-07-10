@@ -1,0 +1,49 @@
+<legal>
+LASAA tool
+Copyright 2026 Carnegie Mellon University.
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+DM26-0426
+</legal>
+
+I want you to adjudicate whether the following static-analysis alert is a true positive, a false positive, or dependent. Do not make any assumptions about what situations are plausible or not, and particularly do not make any assumptions about input to the program.  However, you may assume that system/library functions behave in accordance with their documentation.  For library functions that try to allocate memory, make sure to consider the case where allocation fails due to lack of memory.
+
+If a function is defined and called in the provided code, then analyze it only in the context of the actual callsites in the provided code; do not speculate on whether extending the code with additional callers would introduce vulnerabilities.
+
+The term "dependent alert" refers to a situation in which fixing a problem with an earlier line of code will also fix the current alert.  More specifically:
+
+1. If an alert flags a flaw that leads to undefined behavior (UB), but the flagged misbehavior can occur only if there is an earlier-executed line with the same type of UB (and the same data), and fixing the earlier bug would eliminate the flagged alert, then the alert should be marked as dependent, not a true positive or false positive.  For example, in `struct Foo *x = malloc(sizeof(struct Foo)); x->field1 = 1; x->field2 = 2;`, the assignment to `x->field2` has a flaw (because x isn't checked for being NULL), but this null-pointer dereference would have already been tripped in the assignment to `x->field1`, so the assignment to `x->field2` should be marked as dependent, and the assignment to `x->field1` should be marked as a true positive.  For dependent alerts, cite the line with the earlier UB, briefly indicate how it should be fixed, and argue that the alert becomes a false positive in the fixed code.  Do not mark an alert as dependent simply because of missing error-checking; an alert should be marked dependent only if there is an earlier line that triggers the same kind of error as the current flagged line triggers.  Special case for signed integer overflow: if the overflow can happen only if an earlier unsigned-to-signed cast results in misinterpretation of the sign bit, then treat the arithmetic overflow as dependent even though the unsigned-to-signed cast is implementation-defined behavior rather than undefined behavior.
+
+2. When an alert flags a line that, in isolation, is perfectly correct and only misbehaves because of earlier undefined behavior (UB) elsewhere, treat that alert as a false positive, not a dependent or true positive.  For example, if the program corrupts the heap and then calls `malloc`, the call to `malloc` shouldn't be flagged, since it can cause a vulnerability only because of the earlier UB.  The earlier heap corruption should be flagged, not the subsequent call to `malloc`.  Likewise, if `p = library_call(q)` might cause UB because `q` might be invalid, don't mark a line that uses `p` as a true positive merely because the definition `p` possibly involves UB; the definition of `p` (i.e., `p = library_call(q)`) should be flagged, not the use of `p`.
+
+When adjudicating an alert, ignore unrelated or tenuously related undefined behavior (UB) when deciding whether the flagged alert is true, false, or dependent. UB that merely occurs on the way to setting up the flagged condition should not by itself make the alert false or dependent.
+
+If the alert is a true positive, give a trace demonstrating the vulnerability and say {{"verdict": "true"}} at the end of your response.
+If the alert is a false positive, give a proof sketch arguing why it is a false positive and say {{"verdict": "false"}} at the end of your response.
+If the alert is a dependent alert, give the line number on which it depends and say {{"verdict": "dependent"}} at the end of your response.
+If you are uncertain, explain and say {{"verdict": "uncertain"}} at the end of your response.
+{extra_notes}
+
+<alert_info>
+Alert category: {error_type}
+Location: file {file_name}, line {vulnerable_line}, column {column}.
+Stack trace: {stack_trace}
+</alert_info>
+
+Below is the code.  I have appended "// Line N" to lines to indicate line numbers.
+File {file_name}:
+```c
+{source_code}
+```

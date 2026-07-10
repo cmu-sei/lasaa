@@ -1,0 +1,79 @@
+# <legal>
+# LASAA tool
+#
+# Copyright 2026 Carnegie Mellon University.
+#
+# NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+# INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+# UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+# TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+# OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+# MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+# WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+#
+# Licensed under a MIT (SEI)-style license, please see License.txt or contact
+# permission@sei.cmu.edu for full terms.
+#
+# [DISTRIBUTION STATEMENT A] This material has been approved for public
+# release and unlimited distribution.  Please see Copyright notice for
+# non-US Government use and distribution.
+#
+# This Software includes and/or makes use of Third-Party Software each subject
+# to its own license.
+#
+# DM26-0426
+# </legal>
+
+================================================================================
+LASAA accepts alerts in any of three formats:
+  Format 1: JSON list of alert dicts.
+  Format 2: CSV (.csv) or TSV (.tsv) file with a header row.
+  Format 3: Fused-alert JSON: groups of sub-alerts about the same issue.
+
+================================================================================
+Format 1: JSON list of dicts
+================================================================================
+
+There are a few special fields:
+ - Alert_ID: Unique identifier of the alert.  It appears in filenames of generated files, so try to keep it reasonably short.  You can use a different name for this field by setting the LASAA_ALERT_ID_FIELD environment variable.
+ - Path: If present, indicates the directory in which File resides.  If absent, File must include the path information. Paths are relative to the base directory specified by the "-b"/"--base-dir" option.
+ - File: Filename (including path, if the Path field is absent)
+ - Line: Line number
+ - CWEs: A list of zero of more CWE IDs.  Can be a JSON list, or can be a string with commas separating CWE IDs, like "CWE-123, CWE-456".  Can be blank.
+ - Rule: If this holds a Rule ID (such as "MEM50-CPP") from the SEI CERT C/C++/Java Coding Standard, it will be expanded to the full title of the rule (e.g., "MEM50-CPP. Do not access freed memory") when presented to the LLM.
+ - Verdict: Ground-truth label for the alert, used when LASAA is being run against a labeled manually adjudicated dataset.
+
+LASAA will use the Path, File, and Line fields to extract the source-code text (the function definition of the function containing the flagged line of code).  
+
+By default, all fields except Alert_ID are provided to the LLM.  To provide only some of the fields to the LLM, use the `LASAA_FIELDS_FOR_LLM` environment variable.  A field may contain structured JSON data; it is converted to text by Python `repr`.
+
+If your alerts don't have ID numbers, LASAA can add them as follows:
+
+    ./adjudicate_alerts.py --alerts input_alerts.json --just-add-ids output_alerts.json
+
+To use hash values for Alert ID (instead of numbering from 1 to N), use `--hash-for-id`.  The first 24 hexadecimal digits of the SHA-256 hash is used.
+
+Certain variations of field names (e.g., lowercase instead of title case, "CWE(s)" instead of "CWEs", etc.) are accepted.
+
+
+================================================================================
+Format 2: Comma-Separated Value (".csv") or Tab-Separated Value (".tsv")
+================================================================================
+A header row must be present.  Files are read as UTF-8 with optional BOM.
+ 
+Field semantics match Format 1, but because every CSV/TSV cell is a string,
+the "CWEs" field must be given as a comma-separated string.
+
+
+================================================================================
+Format 3: Fused alerts (JSON)
+================================================================================
+
+A JSON list of (FusedAlertID, subalert_list) pairs:
+
+    [[FusedAlertID_1, [subalert_1_1, ..., subalert_1_N]],
+     [FusedAlertID_2, [subalert_2_1, ..., subalert_2_N]],
+     ...
+     [FusedAlertID_M, [subalert_M_1, ..., subalert_M_N]]]
+
+where each subalert has the same format as an alert as described above for Format 1, except it doesn't need a unique "Alert_ID" field.  The premise here is that alerts (from multiple static-analysis tools) about the same issue have been fused together.

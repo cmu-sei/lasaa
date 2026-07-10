@@ -1,0 +1,60 @@
+# ==============================================================================
+# <legal>
+# LASAA tool
+#
+# Copyright 2026 Carnegie Mellon University.
+#
+# NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+# INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+# UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+# TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+# OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+# MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+# WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+#
+# Licensed under a MIT (SEI)-style license, please see License.txt or contact
+# permission@sei.cmu.edu for full terms.
+#
+# [DISTRIBUTION STATEMENT A] This material has been approved for public
+# release and unlimited distribution.  Please see Copyright notice for
+# non-US Government use and distribution.
+#
+# This Software includes and/or makes use of Third-Party Software each subject
+# to its own license.
+#
+# DM26-0426
+# </legal>
+# ==============================================================================
+#
+# Below is a template for prompting an LLM to write a script for converting
+# from the output of a static-analysis tool LASAA's input format.
+#
+# ==============================================================================
+
+
+LASAA is a project for using LLMs to adjudicate static-analysis alerts (for source code).
+Please write a Python program that converts from _____________ to the LASAA JSON format (described below).
+Include both (1) fields that should be provided to the LLM and (2) fields useful for filtering the alerts (e.g., to pick only the high-severity alerts).  Indicate which fields are useful to given to the LLM (as opposed to useful only for filtering).  When LASAA is run, the `--fields-for-llm` command-line argument will control which fields are provided to the LLM.
+
+================================================================================
+LASAA Format: JSON list of dicts
+================================================================================
+
+Input file is a JSON list.  Each item in the list is a dict that describes a static-analysis alert.
+
+There are a few special fields:
+ - Path: If present, indicates the directory in which File resides.  If absent, the File field must include the path information. Paths are relative to the base directory specified by the "-b"/"--base-dir" option.
+ - File: Filename (including path, if the Path field is absent)
+ - Line: Line number (may be given as a JSON number or as a JSON string, which will be converted to an integer)
+ - CWEs: A list of zero of more CWE IDs.  Can be a JSON list, or can be a string with commas separating CWE IDs, like "CWE-123, CWE-456".  Can be blank or absent.
+
+LASAA will use the Path, File, and Line fields to extract the source code of the function containing the flagged line of code.
+
+LASAA will provide the alert information along with the source code of the function containing the flagged line of code.
+
+A field may contain structured JSON data; it will be converted to text by Python `repr` or `json.dumps`.
+
+================================================================================
+More information about original data format (optional)
+================================================================================
+<If the LLM is unfamiliar with the original data format, provide more info about it and/or examples of it here.>

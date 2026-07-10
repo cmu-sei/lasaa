@@ -1,0 +1,135 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "ExampleCAnalyzer",
+          "version": "1.2.0",
+          "informationUri": "https://example.com/analyzer",
+          "rules": [
+            {
+              "id": "nullDeref",
+              "name": "NullPointerDereference",
+              "shortDescription": {
+                "text": "Possible null pointer dereference."
+              },
+              "fullDescription": {
+                "text": "A pointer that may be null is dereferenced or passed to a function that dereferences it."
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "tags": ["security", "external/cwe/cwe-476"],
+                "security-severity": "7.5"
+              }
+            },
+            {
+              "id": "unusedVar",
+              "name": "UnusedVariable",
+              "shortDescription": {
+                "text": "Variable is assigned but never used."
+              },
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "tags": ["maintainability", "external/cwe/cwe-563"]
+              }
+            }
+          ]
+        }
+      },
+      "originalUriBaseIds": {
+        "SRCROOT": {
+          "uri": "file:///home/dev/project/"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "nullDeref",
+          "ruleIndex": 0,
+          "level": "warning",
+          "message": {
+            "text": "Pointer 'argv[3]' may be null when passed to 'atoi'."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/server.c",
+                  "uriBaseId": "SRCROOT"
+                },
+                "region": {
+                  "startLine": 31,
+                  "startColumn": 21
+                }
+              },
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "main"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "nullDeref",
+          "ruleIndex": 0,
+          "level": "warning",
+          "message": {
+            "text": "Pointer 'reader->file' may be null when passed to 'getline'."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/csv_reader.c",
+                  "uriBaseId": "SRCROOT"
+                },
+                "region": {
+                  "startLine": 33,
+                  "startColumn": 5
+                }
+              },
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "CSVReader_readNextLine"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "unusedVar",
+          "ruleIndex": 1,
+          "level": "note",
+          "message": {
+            "text": "Variable 'tmp' is assigned a value but never used."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/server.c",
+                  "uriBaseId": "SRCROOT"
+                },
+                "region": {
+                  "startLine": 42,
+                  "startColumn": 9
+                }
+              },
+              "logicalLocations": [
+                {
+                  "fullyQualifiedName": "main"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
