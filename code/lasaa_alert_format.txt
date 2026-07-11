@@ -43,7 +43,33 @@ There are a few special fields:
  - Rule: If this holds a Rule ID (such as "MEM50-CPP") from the SEI CERT C/C++/Java Coding Standard, it will be expanded to the full title of the rule (e.g., "MEM50-CPP. Do not access freed memory") when presented to the LLM.
  - Verdict: Ground-truth label for the alert, used when LASAA is being run against a labeled manually adjudicated dataset.
 
-LASAA will use the Path, File, and Line fields to extract the source-code text (the function definition of the function containing the flagged line of code).  
+LASAA will use the Path, File, and Line fields to extract the source-code text
+(the function definition of the function containing the flagged line of code).
+It can also include the source code of additional relevant functions referenced
+by the alert.  The `--more-ctx-fields` option specifies a comma-separated list
+of top-level alert fields to search for these references (default:
+`Traces,CodeFlow,MoreContext`).  Each such field should contain either a list of
+dicts or a list of lists of dicts.  A dict that has both a `File` field and a
+`Line` field identifies the function containing that location.  LASAA includes
+that function's source code in the LLM query; duplicate function snippets are
+included only once.  For example:
+
+    "CodeFlow": [
+      {"File": "src/input.c", "Line": 12},
+      {"File": "src/process.c", "Line": 47}
+    ]
+
+or:
+
+    "Traces": [
+      [
+        {"File": "src/input.c", "Line": 12},
+        {"File": "src/process.c", "Line": 47}
+      ]
+    ]
+
+Use `--more-ctx-fields` to replace the default list when the input format uses
+different top-level field names.
 
 By default, all fields except Alert_ID are provided to the LLM.  To provide only some of the fields to the LLM, use the `LASAA_FIELDS_FOR_LLM` environment variable.  A field may contain structured JSON data; it is converted to text by Python `repr`.
 

@@ -29,6 +29,7 @@ import csv
 import json
 import sys
 import hashlib
+import json
 
 def main():
     if len(sys.argv) != 4 or sys.argv[2] != "-o":
@@ -46,7 +47,7 @@ def main():
         for fld in ["ToolVersion", "RuleId", "HelpUri"]:
             if fld in input_alert:
                 del input_alert[fld]
-        alert_id = hashlib.sha256(repr(input_alert).encode('utf-8')).hexdigest()[:24]
+        alert_id = hashlib.sha256(json.dumps(input_alert).encode('utf-8')).hexdigest()[:24]
         output_alert = {"Alert_ID": alert_id}
         output_alert.update(input_alert)
         output_alert_list.append(output_alert)

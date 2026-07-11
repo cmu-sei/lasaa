@@ -1,0 +1,32 @@
+[
+  {
+    "Alert_ID": "flow-example-001",
+    "Tool": "demo",
+    "File": "greet.c",
+    "Line": 38,
+    "CWE(s)": "CWE-120",
+    "Category": "Unbounded copy of tainted data into a fixed-size buffer.",
+    "Details": "A string obtained from getenv flows through main into greet, where strcpy copies it into the 16-byte buffer 'buf' without a length check.",
+    "CodeFlow": [
+      {"File": "input.c", "Line": 34, "Msg": "getenv(\"USER_NAME\") returns tainted data"},
+      {"File": "main.c", "Line": 34, "Msg": "tainted value passed to greet()"},
+      {"File": "greet.c", "Line": 38, "Msg": "strcpy(buf, name)"}
+    ]
+  },
+  {
+    "Alert_ID": "flow-example-002",
+    "Tool": "demo",
+    "File": "greet.c",
+    "Line": 39,
+    "CWE(s)": "CWE-134",
+    "Category": "Use of Externally-Controlled Format String",
+    "Details": "A string obtained from getenv flows through main into greet and is printed with printf.",
+    "Traces": [
+      [
+        {"File": "input.c", "Line": 34, "Msg": "getenv(\"USER_NAME\") returns tainted data"},
+        {"File": "main.c", "Line": 34, "Msg": "tainted value passed to greet()"},
+        {"File": "greet.c", "Line": 39, "Msg": "printf(\"Hello, %s!\\n\", buf)"}
+      ]
+    ]
+  }
+]

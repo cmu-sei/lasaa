@@ -1,0 +1,11 @@
+[
+  {
+    "Alert_ID": "demo-def-lookup-001",
+    "Tool": "demo",
+    "File": "demo_def_lookup.c",
+    "Line": 51,
+    "CWE(s)": "CWE-787",
+    "Issue Text": "Potential out-of-bounds write through DEMO_STORE.",
+    "Issue Abstract": "The macro-guarded write may permit index == DEMO_SLOT_COUNT, which is one past the end of struct demo_record.payload."
+  }
+]

@@ -34,7 +34,7 @@
 
 LASAA is a project for using LLMs to adjudicate static-analysis alerts (for source code).
 Please write a Python program that converts from _____________ to the LASAA JSON format (described below).
-Include both (1) fields that should be provided to the LLM and (2) fields useful for filtering the alerts (e.g., to pick only the high-severity alerts).  Indicate which fields are useful to given to the LLM (as opposed to useful only for filtering).  When LASAA is run, the `--fields-for-llm` command-line argument will control which fields are provided to the LLM.
+Include both (1) fields that should be provided to the LLM and (2) fields useful for filtering the alerts (e.g., to pick only the high-severity alerts).  Indicate which fields are useful to be given to the LLM (as opposed to useful only for filtering).  When LASAA is run, the `--fields-for-llm` command-line argument will control which fields are provided to the LLM.
 
 ================================================================================
 LASAA Format: JSON list of dicts
@@ -43,16 +43,39 @@ LASAA Format: JSON list of dicts
 Input file is a JSON list.  Each item in the list is a dict that describes a static-analysis alert.
 
 There are a few special fields:
+ - Alert_ID: A unique ID of the alert; will appear in names of files holding queries to the LLM and replies from the LLM.
  - Path: If present, indicates the directory in which File resides.  If absent, the File field must include the path information. Paths are relative to the base directory specified by the "-b"/"--base-dir" option.
  - File: Filename (including path, if the Path field is absent)
  - Line: Line number (may be given as a JSON number or as a JSON string, which will be converted to an integer)
  - CWEs: A list of zero of more CWE IDs.  Can be a JSON list, or can be a string with commas separating CWE IDs, like "CWE-123, CWE-456".  Can be blank or absent.
 
+A field may contain structured JSON data; it will be converted to text by Python `json.dumps`.
+
 LASAA will use the Path, File, and Line fields to extract the source code of the function containing the flagged line of code.
+LASAA will provide the alert information along with the source code of the function containing the flagged line.
 
-LASAA will provide the alert information along with the source code of the function containing the flagged line of code.
+LASAA can also include (in the LLM query) the source code of additional relevant functions.  By default, LASAA looks for additional source-code locations in the fields `Traces`, `CodeFlow`, and `MoreContext`, if such a field holds a list of dicts or a list of lists of dicts.  For each such dict, if it contains both a `File` field and a `Line` field, then LASAA will extract the source code of the function containing the specified location, omitting duplicate function snippets.  (A separate "Path" field is not supported here; the "File" field must contain the path information.)  For example, either of the following shapes is accepted:
 
-A field may contain structured JSON data; it will be converted to text by Python `repr` or `json.dumps`.
+    "CodeFlow": [
+      {"File": "src/input.c", "Line": 12},
+      {"File": "src/process.c", "Line": 47}
+    ]
+
+    "Traces": [
+      [
+        {"File": "src/input.c", "Line": 12},
+        {"File": "src/process.c", "Line": 47}
+      ]
+    ]
+
+The Alert_ID field should be computed as a hash of the alert without the Alert_ID field:
+
+    def add_id_to_alert(alert_without_id):
+        alert_id = hashlib.sha256(json.dumps(alert_without_id).encode('utf-8')).hexdigest()[:24]
+        output_alert = {"Alert_ID": alert_id}
+        output_alert.update(alert_without_id)
+        output_alert_list.append(output_alert)
+        return output_alert
 
 ================================================================================
 More information about original data format (optional)

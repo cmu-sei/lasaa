@@ -319,8 +319,8 @@ def severity_info(result, rule) -> tuple:
     return level, sec_sev, rank
 
 
-def code_flow_summary(result) -> Optional[str]:
-    """Compact one-line summary of the first thread of the first code flow."""
+def code_flow_summary(result):
+    """Compact summary of the first thread of the first code flow."""
     flows = result.get('codeFlows') or []
     if not flows:
         return None
@@ -337,8 +337,13 @@ def code_flow_summary(result) -> Optional[str]:
         uri = art.get('uri') or '?'
         line = region.get('startLine')
         loc_str = f"{uri}:{line}" if line is not None else uri
-        steps.append(f"{loc_str} ({msg})" if msg else loc_str)
-    return ' -> '.join(steps) if steps else None
+        step_summary = {
+            "File": uri,
+            "Line": line,
+            "Msg": msg
+        }
+        steps.append(step_summary)
+    return steps
 
 
 def collect_tags(result, rule) -> list:
@@ -471,7 +476,7 @@ def iter_results(sarif: dict, args):
             if alert_without_id is None:
                 continue
             alert_id = hashlib.sha256(
-                repr(alert_without_id).encode('utf-8')).hexdigest()[:32]
+                json.dumps(alert_without_id).encode('utf-8')).hexdigest()[:32]
             yield alert_id, alert_without_id, r
         except Exception as e:
             print(f"Warning: failed to convert result #{i}: {e}",

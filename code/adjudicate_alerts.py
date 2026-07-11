@@ -100,6 +100,13 @@ class Glo():
 glo = Glo()
 glo.files_used = set()
 glo.tokenize_warned = False
+glo.already_warned = set()
+
+
+if os.getenv("LASAA_USE_REPR", "0") == "1":
+    glo.to_str = repr
+else:
+    glo.to_str = lambda x: json.dumps(x, separators=(', ', ': '))
 
 
 # ===================================================================
@@ -116,13 +123,13 @@ The term "dependent alert" refers to a situation in which fixing an earlier flag
 
 2. When an alert flags a line that, in isolation, is perfectly correct and only misbehaves because of earlier undefined behavior (UB) elsewhere, treat that alert as a false positive, not a dependent or true positive.  For example, if the program corrupts the heap and then calls `malloc`, the call to `malloc` shouldn't be flagged, since it can cause a vulnerability only because of the earlier UB.  The earlier heap corruption should be flagged, not the subsequent call to `malloc`.  Likewise, if `p = library_call(q)` might cause UB because `q` might be invalid, don't mark a line that uses `p` as a true positive merely because the definition `p` (i.e., `p = library_call(q)`) possibly involves UB; the definition of `p` should be flagged, not the use of `p`.
 
-When adjudicating an alert, ignore unrelated or tenuously related undefined behavior (UB) when deciding whether the flagged alert is true, false, or dependent. UB that merely occurs on the way to setting up the flagged condition should not by itself make the alert false or dependent.
+When adjudicating an alert, ignore unrelated or tenuously related undefined behavior (UB) when deciding whether the flagged alert is true, false, or dependent. UB that merely occurs on the way to setting up the flagged condition should not affect your verdict.
 
 If the alert is a true positive, give a trace demonstrating the vulnerability and say {"verdict": "true"} at the end of your response.
 If the alert is a false positive, give a proof sketch arguing why it is a false positive and say {"verdict": "false"} at the end of your response.
 If the alert is a dependent alert, give the line number on which it depends and say {"verdict": "dependent"} at the end of your response.
 If you are uncertain, explain and say {"verdict": "uncertain"} at the end of your response.
-If you need the definitions of structs, macros, or other entities, then say {"need_defs": [...]} on the line before you say {"verdict": "uncertain"}.
+If you need the definitions of structs, macros, or other entities, then say {"need_defs": [...]} on the line before you say {"verdict": "uncertain"}.  Each item in the `need_defs` list should be an identifier (and therefore should not contain any spaces; e.g., do not use "struct foo" but instead just "foo"); we will look it up using `ctags`.  If there are multiple definitions of a given symbol, we will provide all definitions.
 """).lstrip()
 
 
@@ -134,6 +141,11 @@ def die(msg):
     sys.stderr.write(msg + "\n")
     sys.exit(1)
 
+def warn_once(msg):
+    if msg in glo.already_warned:
+        return
+    glo.already_warned.add(msg)
+    sys.stderr.write(msg + "\n")
 
 def read_whole_file(filename):
     with open(filename, "r", encoding="utf-8") as f:
@@ -251,7 +263,7 @@ def collect_need_defs(reply_contents):
     return all_names or None
 
 
-def get_defs_snippets(names, func_bounds_db):
+def get_defs_snippets(names, func_bounds_db, args):
     """Return list of annotated definition snippets for the requested names."""
     by_name = func_bounds_db.get("by_name", {})
     snippets = []
@@ -259,7 +271,7 @@ def get_defs_snippets(names, func_bounds_db):
     for name in names:
         entries = by_name.get(name, [])
         if not entries:
-            stderr.write(f"Warning: definition of '{name}' not found in func_bounds.\n")
+            warn_once(f"Warning: definition of '{name}' not found in func_bounds.")
             continue
         for (filename, line_start, line_end, _, kind) in entries:
             key = (filename, line_start)
@@ -281,8 +293,9 @@ def get_defs_snippets(names, func_bounds_db):
                     end += 1
             annotated = add_line_nums(contents, ret_as_line_list=True)
             text = ''.join(annotated[line_start - 1:end])
+            rel_filename = os.path.relpath(filename, start=args.base_dir)
             snippets.append(
-                f"\nDefinition of `{name}` ({kind}) in {filename}, "
+                f"\nDefinition of `{name}` ({kind}) in {rel_filename}, "
                 f"lines {line_start}-{end}:\n"
                 f"```\n{text}```\n"
             )
@@ -335,7 +348,7 @@ def is_unanimous(verdicts, valid_verdicts):
 
 
 def consistency_check(verdicts, threshold, valid_verdicts):
-    """Return the verdict meeting *threshold* (percent), or None.
+    """Return the verdict meeting *threshold* (trial count), or None.
 
     Denominator is the total number of replies (including uncertain / missing).
     """
@@ -346,9 +359,53 @@ def consistency_check(verdicts, threshold, valid_verdicts):
     for v in valid_verdicts:
         if v in ["missing"]:
             continue
-        if counts.get(v, 0) / total >= threshold / 100.0 - 0.00001:
+        if counts.get(v, 0) >= threshold:
             return v
     return None
+
+
+def parse_threshold_count(threshold_arg, num_trials):
+    """Parse a threshold argument and return a trial count.
+
+    Accepted forms:
+      - "80%" for a percentage
+      - "0.8" for a fraction of num_trials
+      - "8/n" for an explicit trial count
+
+    For backward compatibility, a bare number greater than 50 is treated as a
+    percentage when num_trials is at most 50.
+    """
+    s = str(threshold_arg).strip()
+    threshold_fraction = None
+    threshold_count = None
+
+    if re.fullmatch(r'[0-9]+(?:[.][0-9]+)?%', s):
+        threshold_fraction = float(s[:-1]) / 100.0
+    elif re.fullmatch(r'0[.][0-9]+', s):
+        threshold_fraction = float(s)
+    elif re.fullmatch(r'[0-9]+/[Nn]', s):
+        threshold_count = int(s.split("/", 1)[0])
+    elif re.fullmatch(r'[0-9]+(?:[.][0-9]+)?', s):
+        value = float(s)
+        if value > 50 and num_trials <= 50:
+            threshold_fraction = value / 100.0
+        else:
+            die("Error: --threshold must be written as a percentage like "
+                "'80%', a fraction like '0.80', or a count like '8/n'.")
+    else:
+        die("Error: --threshold must be written as a percentage like "
+            "'80%', a fraction like '0.80', or a count like '8/n'.")
+
+    if threshold_fraction is not None:
+        if threshold_fraction <= 0.5:
+            die("Error: --threshold must be greater than 50%.")
+        threshold_count = math.ceil(num_trials * threshold_fraction - 1e-6)
+
+    if threshold_count <= num_trials / 2:
+        die("Error: --threshold must be greater than 50%.")
+    if threshold_count > num_trials:
+        die("Error: --threshold cannot require more trials than --num-trials.")
+    return threshold_count
 
 
 def simp_maj_verdict(verdicts, valid_verdicts):
@@ -433,12 +490,47 @@ def build_explain_prompt(original_prompt, reply_contents, verdicts):
 # Build the original prompt for one alert
 # ===================================================================
 
-def build_original_prompt(subalerts, func_bounds_db, base_dir):
+def collect_more_ctx_locations(row, more_ctx_fields):
+    """Return a list of (file, line) pairs from the alert's extra-context fields.
+
+    Each field named in *more_ctx_fields* should hold either a list of dicts or
+    a list of lists of dicts; each dict with both a "File" and a "Line" field
+    contributes one location.
+    """
+    locations = []
+    for field in more_ctx_fields:
+        val = row.get(field)
+        if not isinstance(val, list):
+            continue
+        items = []
+        for elem in val:
+            if isinstance(elem, list):
+                items.extend(elem)
+            else:
+                items.append(elem)
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            ctx_file = item.get("File")
+            ctx_line = item.get("Line")
+            if not ctx_file or ctx_line is None:
+                continue
+            try:
+                ctx_line = int(ctx_line)
+            except (TypeError, ValueError):
+                continue
+            locations.append((ctx_file, ctx_line))
+    return locations
+
+
+def build_original_prompt(subalerts, func_bounds_db, args):
     """Build the adjudication prompt for a single alert.
 
     Returns the prompt string, or None if the enclosing function can't be
     found.
     """
+    base_dir = args.base_dir
+
     if len(subalerts)==1 and ("Orig_LLM_Query" in subalerts[0]):
         return subalerts[0]["Orig_LLM_Query"]
     CWE_list = []
@@ -471,7 +563,7 @@ def build_original_prompt(subalerts, func_bounds_db, base_dir):
         for field in glo.fields_for_llm or row.keys():
             if field == glo.alert_id_field:
                 continue
-            alert_info_lines.append(field + ": " + repr(row.get(field)))
+            alert_info_lines.append(field + ": " + glo.to_str(row.get(field)))
         alert_info_lines.append("</alert_info>")
         prompt += "\n" + "\n".join(alert_info_lines) + "\n"
 
@@ -504,6 +596,26 @@ def build_original_prompt(subalerts, func_bounds_db, base_dir):
             + "```\n"
         )
 
+    extra_snippet_list = []
+    for row in subalerts:
+        for (ctx_file, ctx_line) in collect_more_ctx_locations(row, args.more_ctx_fields):
+            filepath = os.path.join(base_dir, row.get("Path", ""), ctx_file)
+            if not os.path.exists(filepath):
+                warn_once(f"Warning: extra-context file not found: {filepath!r}")
+                continue
+            snippet = get_enclosing_func(filepath, ctx_line, func_bounds_db)
+            if not snippet:
+                warn_once(
+                    f"Warning: unable to locate function for extra context "
+                    f"(file {ctx_file!r}, line {ctx_line}).\n")
+                continue
+            extra_snippet_list.append(
+                f"\nFile {filepath}:\n"
+                + "```\n"
+                + snippet
+                + "```\n"
+            )
+
     prompt += '\nBelow is the source code of the function containing the flagged line.  I have appended "// Line N" to lines to indicate line numbers.'
     seen_snippets = set()
     for snippet in snippet_list:
@@ -511,6 +623,16 @@ def build_original_prompt(subalerts, func_bounds_db, base_dir):
             continue
         seen_snippets.add(snippet)
         prompt += snippet
+
+    extra_parts = []
+    for snippet in extra_snippet_list:
+        if snippet in seen_snippets:
+            continue
+        seen_snippets.add(snippet)
+        extra_parts.append(snippet)
+    if extra_parts:
+        prompt += '\nBelow is the source code of additional functions referenced in the alert.'
+        prompt += "".join(extra_parts)
     return prompt
 
 
@@ -522,7 +644,7 @@ def compute_opts_dict(args, include_explain_uncertain):
     """Build the opts dict recorded as a comment in ".final_answer" files.
 
     "t" is the threshold expressed as a count of trials (not a percentage):
-    the minimum number of the N trials required to meet args.threshold.
+    the minimum number of the N trials required for consistency.
     """
     use_simp_maj = bool(getattr(args, "simp_maj", False))
     if use_simp_maj:
@@ -530,7 +652,7 @@ def compute_opts_dict(args, include_explain_uncertain):
         N = args.num_trials
     else:
         if args.consistency_check:
-            threshold_count = math.ceil(args.num_trials * args.threshold / 100.0 - 1e-6)
+            threshold_count = args.threshold
         else:
             threshold_count = None
         N = args.num_trials
@@ -541,6 +663,7 @@ def compute_opts_dict(args, include_explain_uncertain):
         "t": threshold_count,
         "CC": bool(args.consistency_check) and not use_simp_maj,
         "LRE": bool(args.llm_resolve),
+        "LookupMax": args.max_need_defs_rounds,
     }
     if use_simp_maj:
         opts_dict["simp_maj"] = True
@@ -807,21 +930,33 @@ def process_alert(basename, original_prompt, valid_verdicts, out_dir, args, func
     token_files = list(orig_files)
 
     # Handle need_defs: if any trial requested definitions, augment the prompt
-    # and re-run the trials with the enriched context.
-    need_defs_names = collect_need_defs(orig_contents)
-    if need_defs_names:
-        def_snippets = get_defs_snippets(need_defs_names, func_bounds_db)
-        if def_snippets:
-            original_prompt = build_augmented_prompt(original_prompt, def_snippets)
-            prompt_hash = compute_prompt_hash(original_prompt, "augdef")
-            orig_run_qf = os.path.join(
-                out_dir, f"{basename}.{prompt_hash}.run{num_trials_phase1:02d}.query")
-            write_file_if_needed(orig_run_qf, original_prompt)
-            orig = get_trial_replies(out_dir, basename, prompt_hash, num_trials_phase1, valid_verdicts=valid_verdicts)
-            if orig is None:
-                return "waiting: need_defs trial replies"
-            orig_verdicts, orig_contents, orig_files = orig
-            token_files.extend(orig_files)
+    # and re-run the trials with the enriched context.  Repeat so definitions
+    # that refer to other symbols can trigger follow-up definition requests.
+    attempted_need_defs = set()
+    for augdef_round in range(args.max_need_defs_rounds):
+        need_defs_names = collect_need_defs(orig_contents)
+        if not need_defs_names:
+            break
+        need_defs_names = [
+            name for name in need_defs_names
+            if name not in attempted_need_defs
+        ]
+        if not need_defs_names:
+            break
+        attempted_need_defs.update(need_defs_names)
+        def_snippets = get_defs_snippets(need_defs_names, func_bounds_db, args)
+        if not def_snippets:
+            break
+        original_prompt = build_augmented_prompt(original_prompt, def_snippets)
+        prompt_hash = compute_prompt_hash(original_prompt, f"augdef.{augdef_round}")
+        orig_run_qf = os.path.join(
+            out_dir, f"{basename}.{prompt_hash}.run{num_trials_phase1:02d}.query")
+        write_file_if_needed(orig_run_qf, original_prompt)
+        orig = get_trial_replies(out_dir, basename, prompt_hash, num_trials_phase1, valid_verdicts=valid_verdicts)
+        if orig is None:
+            return f"waiting: need_defs round {augdef_round} trial replies"
+        orig_verdicts, orig_contents, orig_files = orig
+        token_files.extend(orig_files)
 
     # ------------------------------------------------------------------
     # LRE off: consistency check on the original prompt.
@@ -829,6 +964,8 @@ def process_alert(basename, original_prompt, valid_verdicts, out_dir, args, func
     if not use_resolve:
         if use_simp_maj:
             maj = simp_maj_verdict(orig_verdicts, valid_verdicts)
+        elif not use_consistency:
+            maj = orig_verdicts[0]
         else:
             maj = consistency_check(orig_verdicts, threshold, valid_verdicts)
         if maj is not None:
@@ -863,6 +1000,8 @@ def process_alert(basename, original_prompt, valid_verdicts, out_dir, args, func
 
     if use_simp_maj:
         maj = simp_maj_verdict(res_verdicts, valid_verdicts)
+    elif not use_consistency:
+        maj = res_verdicts[0]
     else:
         maj = consistency_check(res_verdicts, threshold, valid_verdicts)
     if maj is not None:
@@ -909,7 +1048,7 @@ def guess_field_info_if_absent(first_alert):
         first_alert = first_alert[1][0]
         is_fused = True
     if not isinstance(first_alert, dict):
-        print(f"Warning: malformed first alert: {first_alert!r}")
+        warn_once(f"Warning: malformed first alert: {first_alert!r}")
         return
     if not glo.alert_id_field:
         for try_field in first_alert.keys():
@@ -1012,7 +1151,7 @@ def load_alerts(args):
             rename_map = {"path":"Path", "file":"File", "line":"Line", "rule":"Rule", "verdict":"Verdict"}
             new_alert = {rename_map.get(k,k):v for k,v in alert.items()}
             if len(new_alert) != len(alert):
-                stderr.write(f"Warning: Fields in alert {alert!r} differ only by case (uppercase vs lowercase)\n")
+                warn_once(f"Warning: Fields in alert {alert!r} differ only by case (uppercase vs lowercase)")
             alert = new_alert
             if "Rule" in alert and re.match("[A-Za-z]{3}[0-9]{2}-[A-Z]+", alert["Rule"]):
                 alert["Rule"] = glo.cert_rule_id_to_title.get(alert["Rule"], alert["Rule"])
@@ -1095,7 +1234,7 @@ def main():
         req_args = False
 
     # --- Locations of files and directories ---
-    parser.add_argument("--alerts", type=str, required=True,
+    parser.add_argument("-a", "--alerts", type=str, required=True,
                         help="Alerts JSON file")
     parser.add_argument("--func-bounds",
                         help="File with function start/end line information")
@@ -1116,6 +1255,8 @@ def main():
                         help="Uses function 'keep_alert' defined in specified Python file to filter alerts")
     parser.add_argument("--issue-id", default=None,
                         help="Process only this alert.  Can specify multiple separated by commas.")
+    parser.add_argument("--llm-script",
+                        help="Use the specified script instead of ask_gpt.py")
     parser.add_argument("--run-llm", action="store_true",
                         help="Run ask_gpt.py; pass args after '--'.")
     parser.add_argument("--dont-run-llm", action="store_true",
@@ -1132,13 +1273,23 @@ def main():
     parser.add_argument("--llm-resolve", "--lre", type=int, default=1,
                         choices=[0, 1],
                         help="Ask LLM to resolve discordant answers by evaluating their reasoning (default: 1)")
-    parser.add_argument("--num-trials", type=int, default=10,
+    parser.add_argument("-n", "--num-trials", type=int, default=10,
                         help="Number of trials per stage (default: 10)")
-    parser.add_argument("--threshold", type=float,
-                        help="Consistency-check threshold %% (default: 80)")
+    parser.add_argument("-t", "--threshold",
+                        help="Consistency-check threshold.  Forms: 80%%, 0.80, "
+                             "or 8/n (default: 80%%).")
+    parser.add_argument("--max-need-defs-rounds", type=int, default=5,
+                        help="Maximum number of need_defs augmentation rounds")
+    parser.add_argument("--more-ctx-fields", default="Traces,CodeFlow,MoreContext",
+                        help="Comma-separated list of alert top-level fields to "
+                             "search for additional functions whose source code "
+                             "is included in the query "
+                             "(default: \"Traces,CodeFlow,MoreContext\")")
     parser.add_argument("--explain-uncertain", action="store_true",
                         help="When uncertain, ask the LLM to explain the "
                              "source of disagreement")
+    parser.add_argument("--no-explain-uncertain", action="store_true",
+                        help="Do not ask the LLM to explain the source of disagreement for 'uncertain' verdicts")
     parser.add_argument("--tokenize", action="store_true",
                         help="When a reply lacks token counts and its model is "
                              "gpt-oss-20b/gpt-oss-120b, count the query and reply "
@@ -1193,18 +1344,33 @@ def main():
     #    args.num_trials = args.consistency_check
     if not args.threshold:
         if args.consistency_check > 1:
-            args.threshold = args.consistency_check
+            args.threshold = str(args.consistency_check)
         else:
-            args.threshold = 80
+            args.threshold = "80%"
 
-    if args.threshold <= 50:
-        die("Error: --threshold must be greater than 50%.")
+    args.threshold = parse_threshold_count(args.threshold, args.num_trials)
+    if args.max_need_defs_rounds < 0:
+        die("Error: --max-need-defs-rounds must be nonnegative.")
+
+    args.more_ctx_fields = [x.strip() for x in args.more_ctx_fields.split(",") if x.strip()]
     
     if args.run_llm and args.dont_run_llm:
         die("Error: both '--run-llm' and '--dont-run-llm' were specified!")
 
     if not args.dont_run_llm:
         args.run_llm = True
+
+    if args.llm_script:
+        llm_script = os.path.realpath(args.llm_script)
+        if not os.path.exists(llm_script):
+            die(f"Error: File not found: {llm_script!r}")
+        if not os.access(llm_script, os.X_OK):
+            die(f"Error: File is not marked as executable: {llm_script!r}")
+    
+    if (not args.no_explain_uncertain) and (not args.explain_uncertain):
+        args.explain_uncertain = (os.getenv("LASAA_EXPLAIN_UNCERT", "1").lower() not in ["0", "false", "no"])
+    if args.no_explain_uncertain:
+        args.explain_uncertain = False
     
     load_cert_rule_titles()
     alert_list = load_alerts(args)
@@ -1215,7 +1381,7 @@ def main():
         width = len(str(len(alert_list)))
         for old_alert in alert_list:
             if args.hash_for_id:
-                alert_id = hashlib.sha256(repr(old_alert).encode("utf-8")).hexdigest()[:24]
+                alert_id = hashlib.sha256(json.dumps(old_alert).encode("utf-8")).hexdigest()[:24]
                 new_alert = {"Alert_ID": alert_id}
             else:
                 new_alert = {"Alert_ID": f"{alert_id:0{width}d}"}
@@ -1375,7 +1541,7 @@ def main():
                 else:
                     unrecognized_verdicts.add(verdict)
 
-            original_prompt = build_original_prompt(subalerts, func_bounds_db, base_dir=args.base_dir)
+            original_prompt = build_original_prompt(subalerts, func_bounds_db, args)
             if original_prompt is None:
                 # build_original_prompt already printed an error
                 continue
@@ -1420,7 +1586,10 @@ def main():
 
         if args.run_llm:
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            result = subprocess.run([script_dir + "/ask_gpt.py", out_dir, "--print-skipped", "0"] + child_args)
+            llm_script = script_dir + "/ask_gpt.py"
+            if args.llm_script:
+                llm_script = os.path.realpath(args.llm_script)
+            result = subprocess.run([llm_script, out_dir, "--print-skipped", "0"] + child_args)
             if result.returncode != 0:
                 break
 
@@ -1434,6 +1603,8 @@ def main():
         for used_file in sorted(glo.files_used):
             shutil.copy(used_file, args.copy_used_to)
             
+    if len(glo.already_warned) > 0:
+        print(f"Encountered {len(glo.already_warned)} warnings.")
         
 
 if __name__ == "__main__":

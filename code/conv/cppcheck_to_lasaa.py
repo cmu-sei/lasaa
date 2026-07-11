@@ -88,7 +88,7 @@ def error_to_alert(error):
     """Convert one ``<error>`` XML element into a LASAA alert dict.
 
     The returned dict does *not* include the Alert_ID field; the caller is
-    expected to compute that from the dict's ``repr`` and prepend it.
+    expected to compute it and prepend it.
     """
     alert = {}
     attrs = error.attrib
@@ -168,8 +168,7 @@ def error_to_alert(error):
 
 
 def compute_alert_id(alert):
-    """Return the first 24 hex digits of SHA-256(repr(alert))."""
-    return hashlib.sha256(repr(alert).encode('utf-8')).hexdigest()[:24]
+    return hashlib.sha256(json.dumps(alert).encode('utf-8')).hexdigest()[:24]
 
 
 def convert(xml_source, id_field='Alert_ID'):

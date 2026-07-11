@@ -12,7 +12,6 @@ MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
 WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
 Licensed under a MIT (SEI)-style license, please see License.txt or contact
 permission@sei.cmu.edu for full terms.
-
 [DISTRIBUTION STATEMENT A] This material has been approved for public
 release and unlimited distribution.  Please see Copyright notice for
 non-US Government use and distribution.
@@ -28,6 +27,11 @@ LASAA Docker container.
 If a proxy sits between your machine and the LLM provider, you may need to add
 the proxy's TLS certificate to the `proxy_cert` directory before building the
 Docker container; otherwise the proxy might be recognized as a MITM attack.
+
+Briefly, to build and run:
+
+    docker build -f Dockerfile -t lasaa . # Don't forget the period.
+    docker run -it --rm -v ${PWD}:/host -w /host lasaa bash
 
 ## Testing the connection to the LLM endpoint
 
@@ -82,7 +86,8 @@ The core functionality of the `adjudicate_alerts.py` script is to create
 `adjudicate_alerts.py` calls `ask_gpt.py`, which reads these ".query" files,
 sends the queries to the LLM, and records the LLM's responses in corresponding
 ".reply" files.  This process iterates until a final answer is reached or the
-maximum number of attempts is reached.
+maximum number of attempts is reached.  (To just produce ".query" files without
+running the LLM, use the command-line option `--dont-run-llm`.)
 
 The final adjudications are recorded in a file named "adjudications.json" in
 the output directory (specified by the "-o" option).
@@ -101,20 +106,46 @@ From inside the LASAA Docker container:
     ./conv/flawfinder_csv_to_lasaa.py demo_ff.csv -o demo_alerts.json
      export OPENAI_API_KEY=... # your OpenAI key
     rm -f demo_out/*   
-    ./adjudicate_alerts.py --alerts demo_alerts.json -o demo_out -b . -s demo.c --consistency-check 0 --lre 0 --run-llm
+    ./adjudicate_alerts.py --alerts demo_alerts.json -o out_demo -b . -s demo.c --cc 0 --lre 0
     less demo_out/adjudications.json
+
+## Additional demos
+
+For the consistency check (CC) step and the LLM reasoning evaluation (LRE)
+step, the number of times to query the LLM is specified by the `-n` option.
+For CC, the threshold is specified by `-t`.  It can be specified either as a
+percentage (like `-t 80%` or `-t 0.80`) or as a count (like `-t 8/n`).
+For example, `-t 3/n -n 4` indicates that 4 trials are to be performed, and at
+least 3 of the 4 trials must agree on a verdict to pass the consistency check.
+
+Multiple rounds of macro/struct lookup:
+
+`./adjudicate_alerts.py -a demo_def_lookup.alerts.json -o out_demo_defs -b . -s demo_def_lookup.c -t 2/n -n 3 --lre 0`
+
+Alert with data flow that spans multiple files:
+
+`./adjudicate_alerts.py -a flow_example/flow_example.alerts.json -o out_flow_example -b flow_example/ -t 3/n -n 4 --lre 0`
+
+## Benchmark evaluation
+
+The `code/eval_bench` directory contains the prompts that we used for
+evaluating LASAA on three benchmark suites: Juliet, FormAI, and SV-COMP.
 
 ## Rerunning with different options
 
 Suppose you just ran the following:
 
-    ./adjudicate_alerts.py --alerts alerts.json -o out -b example_src --consistency-check 1 --lre 0 --num-trials 5 --run-llm
+    ./adjudicate_alerts.py --alerts alerts.json -o out -b example_src --cc 1 --lre 0 -n 5
 
-Now suppose you want to try it again with different options, e.g., `--lre 1 --num-trials 10`.  You can re-use the intermediate results by re-using the output directory:
+Now suppose you want to try it again with different options, e.g., `--lre 1 -n 10`.
+You can re-use the intermediate results by re-using the output directory:
 
-    ./adjudicate_alerts.py --alerts alerts.json -o out -b example_src --consistency-check 1 --lre 1 --num-trials 10 --run-llm
+    ./adjudicate_alerts.py --alerts alerts.json -o out -b example_src --cc 1 --lre 1 -n 10
 
-In the header line of each `.final_answer` file, LASAA records the options used.  LASAA automatically deletes the `.final_answer` files when running with different options.  The `.final_answer` files are cheap to regenerate if all the `.reply` files already exist.
+In the header line of each `.final_answer` file, LASAA records the options used.
+LASAA automatically deletes the `.final_answer` files when running with
+different options.  The `.final_answer` files are cheap to regenerate if all
+the `.reply` files already exist.
 
 ## Updating SARIF files
 
@@ -122,7 +153,8 @@ To convert from SARIF to LASAA's input format:
 
     /host/code/conv/sarif_to_lasaa.py orig.sarif [-b BASE_DIR] -o alerts_for_lasaa.json
 
-After running LASAA, you can produce an updated SARIF file with LASAA's verdicts and explanations as follows:
+After running LASAA, you can produce an updated SARIF file with LASAA's
+verdicts and explanations as follows:
 
     /host/code/conv/sarif_to_lasaa.py orig.sarif [-b BASE_DIR] -u adjudications.json -o updated.sarif
 
@@ -131,4 +163,9 @@ The LASAA distribution includes a pair of files to demonstrate this capability:
     cd /host/code/conv
     ./sarif_to_lasaa.py example_alerts.sarif -u example_adjudications.json -o updated_alerts.sarif
 
-Note that the LASAA `Alert_ID` for SARIF files is a truncated SHA-256 hash of a representation of the alert; adjudications are matched to alerts in the SARIF file by recomputing the hash and finding a matching `Alert_ID` in the adjudications file.  As a consequence of this, if a base directory is specified with `-b` when converting from SARIF to LASAA's input format, the same base directory must be specified when updating the SARIF file.
+Note that the LASAA `Alert_ID` for SARIF files is a truncated SHA-256 hash of a
+representation of the alert; adjudications are matched to alerts in the SARIF
+file by recomputing the hash and finding a matching `Alert_ID` in the
+adjudications file.  As a consequence of this, if a base directory is specified
+with `-b` when converting from SARIF to LASAA's input format, the same base
+directory must be specified when updating the SARIF file.
