@@ -105,9 +105,9 @@ From inside the LASAA Docker container:
     flawfinder --csv demo.c > demo_ff.csv
     ./conv/flawfinder_csv_to_lasaa.py demo_ff.csv -o demo_alerts.json
      export OPENAI_API_KEY=... # your OpenAI key
-    rm -f demo_out/*   
+    rm -f out_demo/*   
     ./adjudicate_alerts.py --alerts demo_alerts.json -o out_demo -b . -s demo.c --cc 0 --lre 0
-    less demo_out/adjudications.json
+    less out_demo/adjudications.json
 
 ## Additional demos
 
