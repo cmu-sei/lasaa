@@ -20,6 +20,62 @@ to its own license.
 DM26-0426
 </legal>
 
+## Description of LASAA
+
+LASAA uses a large language model (LLM) to *adjudicate* static-analysis alerts
+(i.e., to decide whether an alert indicates a real flaw).  It also reports a
+justification along with every verdict.
+
+LASAA is analyzer-agnostic: it ingests alerts in a small common format, and the
+`code/conv` directory provides converters from SARIF and a few other formats,
+as well as a template for prompting a frontier LLM to create a converter for
+other formats.
+
+For each alert, LASAA builds a query containing the alert's fields
+(file, line, CWE, message), the source code of the function that contains the
+flagged line (located by running `ctags` over the project), and instructions
+telling the LLM to classify the alert as `true`, `false`, `dependent`, or
+`uncertain`.  A verdict of `dependent` means that the alert would be fixed as a
+side effect of fixing an earlier line with the same flaw type; pointing a
+developer at the line that actually needs repair is generally more useful than
+flagging every downstream symptom.  If the LLM needs the definition of a struct
+or macro that isn't in the supplied function, it can ask for it, and LASAA
+looks the symbol up (again via `ctags`), appends the definition to the prompt,
+and re-issues the query.
+
+LASAA implements two independently selectable mechanisms for mitigating LLM
+mistakes (both enabled by default):
+
+* **Consistency check (CC):** run the query N times (default 10) and return the
+  verdict only if it was reached on at least a threshold percentage of the
+  trials (default 80%); otherwise return `uncertain`.  Raising the threshold
+  generally reduces the number of wrong verdicts at the expense of more
+  `uncertain` verdicts.  A plain majority-vote baseline is also available as an
+  alternative to CC.
+* **LLM reasoning evaluation (LRE):** when the trials disagree, present the
+  original query and the discordant responses back to the LLM and ask it to
+  weigh the competing reasoning and then write its own answer.  Unlike a
+  majority vote, this lets a well-reasoned minority position win.  LRE and CC
+  can be combined: the LRE prompt itself is run N times and a consistency check
+  is applied to its verdicts.
+
+Queries and replies are stored on disk (in the specified output directory), so
+re-running with different options reuses the earlier LLM calls when possible.
+This also enables a run of LASAA to stopped and later resumed by simply
+rerunning the original command.
+
+We evaluated LASAA on three benchmark test suites (Juliet, FormAI, and SV-COMP)
+with several LLMs.  With mistake mitigation enabled, the mid-tier reasoning
+models we tested (o4-mini, gpt-oss-120b, gpt-oss-20b) reached at least 98%
+recall (the percentage of real bugs correctly flagged as needing attention) and
+at least 94.8% specificity (the percentage of false alerts correctly dismissed)
+on every suite.
+The `code/eval_bench` directory contains the prompts that we used for
+the three benchmark suites.
+
+For more information, see our paper: <https://arxiv.org/pdf/2607.09979>.
+
+
 ## Building and running the Docker container
 
 See the comments in `Dockerfile` for information on how to build and run the
@@ -50,17 +106,17 @@ different endpoint):
     root@9c7f3fbed57d:/host/code# cat example.query
     What is the capital of France?
 
-    root@9c7f3fbed57d:/host/code# ./ask_gpt.py example.query 
+    root@9c7f3fbed57d:/host/code# ./ask_gpt.py example.query
     Importing openai... Done.
     Wrote reply to 'example.reply'.
 
-    root@9c7f3fbed57d:/host/code# cat example.reply 
+    root@9c7f3fbed57d:/host/code# cat example.reply
     # Model: o4-mini-2025-04-16, reasoning_tokens: 64, output tokens: 129
 
     The capital of France is Paris.
 
 ## Choosing an LLM endpoint
-    
+
 By default, `ask_gpt.py` uses the commercial OpenAI API endpoint, and it
 expects your OpenAI API key to be stored in the environment variable
 `OPENAI_API_KEY`.  You can specify a different provider (and a different
@@ -91,6 +147,7 @@ running the LLM, use the command-line option `--dont-run-llm`.)
 
 The final adjudications are recorded in a file named "adjudications.json" in
 the output directory (specified by the "-o" option).
+There is also a `.final_answer` file for each alert.
 
 When running `adjudicate_alerts.py`, any options that appear after ` -- ` are
 passed to `ask_gpt.py`.  For example:
@@ -105,18 +162,23 @@ From inside the LASAA Docker container:
     flawfinder --csv demo.c > demo_ff.csv
     ./conv/flawfinder_csv_to_lasaa.py demo_ff.csv -o demo_alerts.json
      export OPENAI_API_KEY=... # your OpenAI key
-    rm -f out_demo/*   
+    rm -f out_demo/*
     ./adjudicate_alerts.py --alerts demo_alerts.json -o out_demo -b . -s demo.c --cc 0 --lre 0
     less out_demo/adjudications.json
 
-## Additional demos
+## Mistake-mitigation options
 
 For the consistency check (CC) step and the LLM reasoning evaluation (LRE)
-step, the number of times to query the LLM is specified by the `-n` option.
+step, the number of trials (i.e., the number of times to send the query to the
+LLM) is specified by the `-n` option.
 For CC, the threshold is specified by `-t`.  It can be specified either as a
 percentage (like `-t 80%` or `-t 0.80`) or as a count (like `-t 8/n`).
 For example, `-t 3/n -n 4` indicates that 4 trials are to be performed, and at
 least 3 of the 4 trials must agree on a verdict to pass the consistency check.
+
+CC can be turned off by `--cc 0`, and LRE can be turned off by `--lre 0`.
+
+## Additional demos
 
 Multiple rounds of macro/struct lookup:
 
@@ -125,11 +187,6 @@ Multiple rounds of macro/struct lookup:
 Alert with data flow that spans multiple files:
 
 `./adjudicate_alerts.py -a flow_example/flow_example.alerts.json -o out_flow_example -b flow_example/ -t 3/n -n 4 --lre 0`
-
-## Benchmark evaluation
-
-The `code/eval_bench` directory contains the prompts that we used for
-evaluating LASAA on three benchmark suites: Juliet, FormAI, and SV-COMP.
 
 ## Rerunning with different options
 
