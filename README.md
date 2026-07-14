@@ -27,9 +27,9 @@ LASAA uses a large language model (LLM) to *adjudicate* static-analysis alerts
 justification along with every verdict.
 
 LASAA is analyzer-agnostic: it ingests alerts in a small common format, and the
-`code/conv` directory provides converters from SARIF and a few other formats,
-as well as a template for prompting a frontier LLM to create a converter for
-other formats.
+`code/conv` directory provides converters from SARIF and a few other formats to
+the LASAA input format, as well as a template for prompting a frontier LLM to
+create a converter for other formats.
 
 For each alert, LASAA builds a query containing the alert's fields
 (file, line, CWE, message), the source code of the function that contains the
@@ -61,7 +61,7 @@ mistakes (both enabled by default):
 
 Queries and replies are stored on disk (in the specified output directory), so
 re-running with different options reuses the earlier LLM calls when possible.
-This also enables a run of LASAA to stopped and later resumed by simply
+This also enables a run of LASAA to be stopped and later resumed by simply
 rerunning the original command.
 
 We evaluated LASAA on three benchmark test suites (Juliet, FormAI, and SV-COMP)
@@ -138,11 +138,11 @@ The following command-line arguments might also be useful:
 ## Adjudicating alerts
 
 The core functionality of the `adjudicate_alerts.py` script is to create
-".query" files.  After producing a batch of ".query" files,
-`adjudicate_alerts.py` calls `ask_gpt.py`, which reads these ".query" files,
+`.query` files.  After producing a batch of `.query` files,
+`adjudicate_alerts.py` calls `ask_gpt.py`, which reads these `.query` files,
 sends the queries to the LLM, and records the LLM's responses in corresponding
-".reply" files.  This process iterates until a final answer is reached or the
-maximum number of attempts is reached.  (To just produce ".query" files without
+`.reply` files.  This process iterates until a final answer is reached or the
+maximum number of attempts is reached.  (To just produce `.query` files without
 running the LLM, use the command-line option `--dont-run-llm`.)
 
 The final adjudications are recorded in a file named "adjudications.json" in
@@ -165,6 +165,8 @@ From inside the LASAA Docker container:
     rm -f out_demo/*
     ./adjudicate_alerts.py --alerts demo_alerts.json -o out_demo -b . -s demo.c --cc 0 --lre 0
     less out_demo/adjudications.json
+
+(The leading space in front of `export OPENAI_API_KEY=...` prevents it from being stored in the Bash history.)
 
 ## Mistake-mitigation options
 
