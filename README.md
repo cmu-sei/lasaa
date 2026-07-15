@@ -182,13 +182,34 @@ CC can be turned off by `--cc 0`, and LRE can be turned off by `--lre 0`.
 
 ## Additional demos
 
-Multiple rounds of macro/struct lookup:
+### Multiple rounds of macro/struct lookup:
 
 `./adjudicate_alerts.py -a demo_def_lookup.alerts.json -o out_demo_defs -b . -s demo_def_lookup.c -t 2/n -n 3 --lre 0`
 
-Alert with data flow that spans multiple files:
+To confirm this demo worked, look at the sequence of `.query` files in the
+`out_demo_defs` directory.  The first query (with `orig` in its name) contains
+only the flagged function; each subsequent query (with `augdef.0`, `augdef.1`,
+`augdef.2`, ... in its name) is augmented with additional struct/macro
+definitions appended, because the LLM requested them via `need_defs` and LASAA
+looked them up and re-issued the query.
+The final `augdef` query therefore shows the full chain of definitions that the
+LLM needed in order to reach a verdict, which is recorded in
+`out_demo_defs/demo-def-lookup-001.final_answer`.
+
+### Alert with data flow that spans multiple files:
 
 `./adjudicate_alerts.py -a flow_example/flow_example.alerts.json -o out_flow_example -b flow_example/ -t 3/n -n 4 --lre 0`
+
+To confirm this demo worked, look at the `.query` files in the
+`out_flow_example` directory (e.g., `flow-example-001.*.orig.run04.query`).
+The point of interest is that the query includes not only the source code of
+the function enclosing the flagged line (`greet` in `greet.c`) but also the
+source code of the other functions enclosing the locations referred to by the
+alert's `CodeFlow` field (`read_name` in `input.c`, and `main` in `main.c`).
+This multiple-function context is what lets the LLM see that a tainted string
+from `getenv` flows into the `strcpy`.  See `code/lasaa_alert_format.txt` for
+info on how LASAA identifies which functions to show as extra context, and
+see `out_flow_example/flow-example-001.final_answer` for the resulting verdict.
 
 ## Rerunning with different options
 
@@ -217,7 +238,9 @@ verdicts and explanations as follows:
 
     /host/code/conv/sarif_to_lasaa.py orig.sarif [-b BASE_DIR] -u adjudications.json -o updated.sarif
 
-The LASAA distribution includes a pair of files to demonstrate this capability:
+### SARIF demo
+
+The LASAA distribution includes a pair of files (`example_alerts.sarif` and `example_adjudications.json`) to demonstrate the above capability:
 
     cd /host/code/conv
     ./sarif_to_lasaa.py example_alerts.sarif -u example_adjudications.json -o updated_alerts.sarif
