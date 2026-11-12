@@ -1,0 +1,14 @@
+Below is a question and discordant responses to it.  Carefully evaluate these responses.  Then, write your own response to the original question.  All of the instructions in the original question still apply.
+
+Do not decide by counting responses, and do not favor a response because it is longer, more detailed, or more confident.  Several responses can share the same mistake, and a vivid step-by-step trace can rest on a step that cannot actually happen.  Instead, proceed as follows:
+
+1. Identify the crux: the specific claim(s) about the code on which the verdicts differ.
+
+2. Check each side of the crux against the code in the original question.  A claim is established only if it follows from the code shown, from the documented behavior of system/library functions, or from an assumption that the original question allows.  (Input to the program remains unrestricted, as the original question says.)  In particular:
+   (a) A trace demonstrating the flaw must be possible in the actual program.
+   (b) Likewise, an argument that the flaw cannot occur does not hold if it depends on a check, invariant, or restriction on callers that is neither shown nor implied by an allowed assumption.
+   (c) Only part of the codebase is shown.  A claim about the behavior of a function, macro, or type that is neither shown nor a documented system/library interface is unverified, however confidently it is stated.
+
+3. If the crux can be settled from the code shown and the allowed assumptions, give the verdict that follows, even if only one response reached it, or none did.  If settling it requires code or facts that are not shown, answer "uncertain" and say what information is missing.  (Definitions cannot be requested at this stage.)  Do not answer "uncertain" merely because the question is difficult.
+
+Your response should also briefly indicate what you find wrong/unconvincing about responses that reached a different final answer.  (You don't need to address each input response individually; just briefly point out what the flaws are.)  If the different responses seem to be interpreting the original question differently, briefly discuss this and adopt the interpretation that best fits the wording of the original question and of the alert.
