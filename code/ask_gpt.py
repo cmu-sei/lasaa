@@ -37,6 +37,21 @@ from datetime import datetime, timezone
 
 import aiofiles                # pip install aiofiles
 
+# Output-token cap for providers that need one (Fireworks, OpenRouter).  It
+# must leave room for long reasoning: at the earlier cap of 16000, some
+# gpt-oss replies were cut off before their verdict line.
+DEFAULT_MAX_OUTPUT_TOKENS = 64000
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+# Flex requests trade latency for lower cost.  Give them more time and more
+# opportunities to ride out temporary capacity shortages unless the caller
+# explicitly chooses a timeout.
+DEFAULT_TIMEOUT_SECONDS = 20 * 60
+FLEX_TIMEOUT_SECONDS = 30 * 60
+DEFAULT_MAX_RETRIES = 5
+FLEX_MAX_RETRIES = 10
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Send a query to an LLM and record its reply."
@@ -47,13 +62,22 @@ def parse_args():
     parser.add_argument("--model", type=str, help="Model to use")
     parser.add_argument("--reasoning-effort", help="One of {low, medium, high}")
     parser.add_argument("--temperature", type=float, help="Sampling temperature")
-    parser.add_argument("--provider", choices=["OpenAI", "Fireworks", "Gemini"], default="OpenAI")
+    parser.add_argument("--provider", choices=["OpenAI", "Fireworks", "Gemini", "OpenRouter"], default="OpenAI")
+    parser.add_argument("--or-endpoint",
+                        help="OpenRouter only: the endpoint tag (e.g., 'crusoe/bf16') to pin every "
+                             "request to, with fallbacks disabled.  Omit it to list the model's endpoints.")
     parser.add_argument("--base-url", help="Endpoint for OpenAI-style API")
     parser.add_argument("--api-key-name", help="The *name* of the env var with the API key (no '$')")
     parser.add_argument("--api-type", choices=["chat_completion", "response"])
+    parser.add_argument("--flex-tier", action="store_true",
+                        help="Use OpenAI Flex processing (30-minute default timeout and extra retries)")
     parser.add_argument("--concurrency", type=int, default=100, help="Number of parallel queries")
-    parser.add_argument("--timeout", type=int, default=1200, help="Timeout in seconds")
-    parser.add_argument("--max-output-tokens", type=int)
+    parser.add_argument("--timeout", type=int,
+                        help=f"Timeout in seconds (default: {DEFAULT_TIMEOUT_SECONDS}; "
+                             f"with --flex-tier: {FLEX_TIMEOUT_SECONDS})")
+    parser.add_argument("--max-output-tokens", type=int,
+                        help="Output-token cap (default for Fireworks and OpenRouter: "
+                             f"{DEFAULT_MAX_OUTPUT_TOKENS}; otherwise none)")
     parser.add_argument("--check-verdict", type=int, default=0,
                         choices=[0, 1], help="Redo queries that lack a verdict line")
     parser.add_argument("--print-skipped", type=int,
@@ -75,6 +99,10 @@ sys.stderr.write("Done.\n");
 def die(msg):
     sys.stderr.write(msg + "\n")
     sys.exit(1)
+
+def reasoning_effort_label() -> str:
+    """The reasoning effort requested on the command line, for reply headers."""
+    return cmdline_args.reasoning_effort or "default"
 
 # -------------------- runN expansion helper ---------------------- #
 _RUN_RE = re.compile(r'^(?P<base>.+)\.run(?P<n>[0-9]+)\.query$')
@@ -158,6 +186,10 @@ async def process_query_file_via_response_api(
             extra_kwargs["reasoning"] = {"effort": opts["reasoning_effort"]}
         if opts.get("temperature") is not None:
             extra_kwargs["temperature"] = opts["temperature"]
+        if opts.get("flex_tier"):
+            extra_kwargs["service_tier"] = "flex"
+        if cmdline_args.max_output_tokens:
+            extra_kwargs["max_output_tokens"] = cmdline_args.max_output_tokens
 
         resp = await client.responses.create(
             model=model,
@@ -191,6 +223,17 @@ async def process_query_file_via_response_api(
         output_tokens = getattr(usage, "output_tokens", None) if usage else None
         input_tokens = getattr(usage, "input_tokens", None) if usage else None
 
+        # Cached input tokens are reported separately from the input-token
+        # total by the Responses API.
+        cached_input_tokens = None
+        if usage:
+            details = getattr(usage, "input_tokens_details", None)
+            if details is not None:
+                cached_input_tokens = getattr(details, "cached_tokens", None)
+            # Accommodate providers that expose the count directly.
+            if cached_input_tokens is None:
+                cached_input_tokens = getattr(usage, "cached_input_tokens", None)
+
         # Reasoning token counts can live in a details object for some models
         reasoning_tokens = None
         if usage:
@@ -202,17 +245,31 @@ async def process_query_file_via_response_api(
             if reasoning_tokens is None:
                 reasoning_tokens = getattr(usage, "reasoning_tokens", None)
 
-        header_bits = [f"Model: {actual_model}"]
+        header_bits = [f"Model: {actual_model}",
+                       f"reasoning_effort='{reasoning_effort_label()}'"]
         if input_tokens is not None:
             header_bits.append(f"input_tokens: {input_tokens}")
+        if cached_input_tokens is not None:
+            header_bits.append(f"cached_input_tokens: {cached_input_tokens}")
         if reasoning_tokens is not None:
             header_bits.append(f"reasoning_tokens: {reasoning_tokens}")
         if output_tokens is not None:
             header_bits.append(f"output_tokens: {output_tokens}")
 
+        # Cut short by the output-token cap: as with chat completions (see
+        # "REACHED MAX TOKEN LIMIT" below), the reply counts as uncertain.
+        incomplete = getattr(resp, "incomplete_details", None)
+        truncated = (getattr(resp, "status", None) == "incomplete"
+                     and getattr(incomplete, "reason", None) == "max_output_tokens")
+        if truncated:
+            header_bits.append("finish_reason='length'")
+
         response = "# " + ", ".join(header_bits) + "\n\n" + (response_text or "")
         if not response.endswith("\n"):
             response += "\n"
+        if truncated:
+            response += ("<!-- REACHED MAX TOKEN LIMIT -->\n" +
+                         '{"verdict": "uncertain", "reason": "token limit reached"}\n')
 
         async with aiofiles.open(reply_path, "w", encoding="utf-8") as f:
             await f.write(response)
@@ -247,6 +304,7 @@ async def process_query_file_via_chat_completion(
     finish_reason = None
     actual_model = model
     usage = None
+    served_by = None  # OpenRouter: the provider that actually served the request
 
     extra_kwargs = {}
     if cmdline_args.max_output_tokens:
@@ -255,6 +313,10 @@ async def process_query_file_via_chat_completion(
         extra_kwargs["temperature"] = opts["temperature"]
     if opts and opts.get("reasoning_effort"):
         extra_kwargs["reasoning_effort"] = opts["reasoning_effort"]
+    if opts and opts.get("flex_tier"):
+        extra_kwargs["service_tier"] = "flex"
+    if opts and opts.get("extra_body"):
+        extra_kwargs["extra_body"] = opts["extra_body"]
     try:
         if os.getenv("SIMULATE_503") == "1":
             req = httpx.Request("POST", "https://example.test/v1/chat/completions")
@@ -280,19 +342,28 @@ async def process_query_file_via_chat_completion(
                 if choice.delta.content:
                     response += choice.delta.content
                 
-                # Accumulate reasoning if present (for reasoning models)
-                if hasattr(choice.delta, 'reasoning_content') and choice.delta.reasoning_content:
-                    reasoning += choice.delta.reasoning_content
-                
+                # Accumulate reasoning if present (for reasoning models).
+                # Fireworks calls it "reasoning_content"; OpenRouter, "reasoning".
+                delta_reasoning = (getattr(choice.delta, 'reasoning_content', None)
+                                   or getattr(choice.delta, 'reasoning', None))
+                if delta_reasoning:
+                    reasoning += delta_reasoning
+
                 # Capture finish_reason from final chunk
                 if choice.finish_reason:
                     finish_reason = choice.finish_reason
-            
+
             # Capture model name if present
             if hasattr(chunk, 'model'):
                 actual_model = chunk.model
 
-            usage = getattr(chunk, "usage", None)
+            if getattr(chunk, "provider", None):
+                served_by = chunk.provider
+
+            # Usage arrives in the final chunk; don't let a later chunk
+            # without it erase it.
+            if getattr(chunk, "usage", None) is not None:
+                usage = chunk.usage
 
     except Exception as e:
         print(f"Error generating completion for '{query_path}': {e}")
@@ -315,6 +386,12 @@ async def process_query_file_via_chat_completion(
     extra_header = ""
     if finish_reason and finish_reason != "stop":
         extra_header += f", finish_reason='{finish_reason}'"
+    # Keep these on the "# Model:" line: strip_reply_header() in
+    # adjudicate_alerts.py removes only the known header lines.
+    if opts and opts.get("or_endpoint"):
+        extra_header += f", endpoint='{opts['or_endpoint']}'"
+    if served_by:
+        extra_header += f", provider='{served_by}'"
     
     if not response:
         print(f"No response for '{query_path}', finish_reason={finish_reason}.")
@@ -335,8 +412,29 @@ async def process_query_file_via_chat_completion(
             response)
     
     if usage:
-        extra_header += f"\n# prompt_tokens={usage.prompt_tokens}, completion_tokens={usage.completion_tokens}"
-    response = f"# Model: {actual_model}" + extra_header + "\n\n" + response
+        usage_bits = [
+            f"prompt_tokens={usage.prompt_tokens}",
+            f"completion_tokens={usage.completion_tokens}",
+        ]
+        details = getattr(usage, "prompt_tokens_details", None)
+        cached_input_tokens = (getattr(details, "cached_tokens", None)
+                               if details is not None else None)
+        # Accommodate providers that expose the count directly.
+        if cached_input_tokens is None:
+            cached_input_tokens = getattr(usage, "cached_input_tokens", None)
+        if cached_input_tokens is not None:
+            usage_bits.append(f"cached_input_tokens={cached_input_tokens}")
+        details = getattr(usage, "completion_tokens_details", None)
+        reasoning_tokens = (getattr(details, "reasoning_tokens", None)
+                            if details is not None else None)
+        if reasoning_tokens is not None:
+            usage_bits.append(f"reasoning_tokens={reasoning_tokens}")
+        cost = getattr(usage, "cost", None)  # OpenRouter reports USD cost
+        if cost is not None:
+            usage_bits.append(f"cost={cost}")
+        extra_header += "\n# " + ", ".join(usage_bits)
+    response = (f"# Model: {actual_model}, reasoning_effort='{reasoning_effort_label()}'"
+                + extra_header + "\n\n" + response)
     
     # --- write reply -----------------------------------------------
     try:
@@ -383,6 +481,90 @@ async def run_tasks(task_pairs: list[tuple[Path, Path]], client: AsyncOpenAI, ap
         die(f"Exiting due to {breaker.threshold} consecutive 503s.")
 
 
+# ------------------------- OpenRouter setup ---------------------- #
+def fetch_openrouter_endpoints(model: str) -> list[dict]:
+    """Return OpenRouter's list of endpoints (provider deployments) for *model*."""
+    url = f"{OPENROUTER_BASE_URL}/models/{model}/endpoints"
+    try:
+        resp = httpx.get(url, timeout=30, verify=os.getenv("SSL_CERT_FILE") or True)
+        resp.raise_for_status()
+        return resp.json()["data"]["endpoints"]
+    except Exception as e:
+        die(f"Error: couldn't fetch OpenRouter endpoints for {model!r} ({url}): {e}")
+
+def print_openrouter_endpoints(model: str, endpoints: list[dict]) -> None:
+    print(f"Endpoints for {model} (pass one of the tags as --or-endpoint):")
+    print(f"  {'tag':28} {'quant':8} {'max_out':>8} {'context':>8} "
+          f"{'$/M in':>7} {'$/M out':>7}  reasoning")
+    for e in endpoints:
+        pricing = e.get("pricing") or {}
+        def per_million(key):
+            try:
+                return f"{float(pricing.get(key)) * 1e6:7.3f}"
+            except (TypeError, ValueError):
+                return f"{'?':>7}"
+        reasoning = "yes" if "reasoning" in (e.get("supported_parameters") or []) else "no"
+        print(f"  {str(e.get('tag')):28} {str(e.get('quantization')):8} "
+              f"{str(e.get('max_completion_tokens')):>8} {str(e.get('context_length')):>8} "
+              f"{per_million('prompt')} {per_million('completion')}  {reasoning}")
+    sys.stdout.flush()  # print the table before die()'s message on stderr
+
+def configure_openrouter_endpoint(model: str, opts: dict) -> None:
+    """Pin all requests to the endpoint named by --or-endpoint.
+
+    OpenRouter otherwise routes each request to any of several providers,
+    which may serve the model at different precisions (e.g., fp4 vs. bf16),
+    so a run would mix deployments.  Pinning one endpoint, with fallbacks
+    disabled, keeps runs reproducible.  Also clamps the output-token cap to
+    the endpoint's limit and moves the reasoning effort into OpenRouter's
+    "reasoning" parameter.
+    """
+    args = cmdline_args
+    endpoints = fetch_openrouter_endpoints(model)
+    if not args.or_endpoint:
+        print_openrouter_endpoints(model, endpoints)
+        die("Error: OpenRouter requires '--or-endpoint TAG' (see the list above).")
+    matches = [e for e in endpoints if e.get("tag") == args.or_endpoint]
+    if not matches:
+        print_openrouter_endpoints(model, endpoints)
+        die(f"Error: {args.or_endpoint!r} is not an endpoint of {model} (see the list above).")
+    endpoint = matches[0]
+    supported = endpoint.get("supported_parameters") or []
+    if opts.get("reasoning_effort") and "reasoning" not in supported:
+        die(f"Error: endpoint {args.or_endpoint!r} doesn't accept a reasoning effort.")
+
+    endpoint_max = endpoint.get("max_completion_tokens")
+    if args.max_output_tokens is None:
+        args.max_output_tokens = DEFAULT_MAX_OUTPUT_TOKENS
+        if endpoint_max and endpoint_max < args.max_output_tokens:
+            print(f"Note: endpoint {args.or_endpoint!r} allows at most {endpoint_max} "
+                  f"output tokens; lowering the cap from {args.max_output_tokens}.")
+            args.max_output_tokens = endpoint_max
+    elif endpoint_max and endpoint_max < args.max_output_tokens:
+        die(f"Error: --max-output-tokens {args.max_output_tokens} exceeds endpoint "
+            f"{args.or_endpoint!r}'s limit of {endpoint_max}.")
+
+    extra_body = {"provider": {
+        "order": [args.or_endpoint],
+        "allow_fallbacks": False,
+        # Fail rather than silently drop a parameter (e.g., the reasoning
+        # effort) that the endpoint doesn't support.
+        "require_parameters": True,
+    }}
+    # A provider can offer the same model at several precisions (e.g.,
+    # DeepInfra's fp4 "turbo" and its fp8 endpoint), so also pin the precision.
+    quantization = endpoint.get("quantization")
+    if quantization and quantization != "unknown":
+        extra_body["provider"]["quantizations"] = [quantization]
+    if opts.get("reasoning_effort"):
+        extra_body["reasoning"] = {"effort": opts.pop("reasoning_effort")}
+    opts["extra_body"] = extra_body
+    opts["or_endpoint"] = args.or_endpoint
+    print(f"OpenRouter: pinned to endpoint {args.or_endpoint!r} "
+          f"(quantization {endpoint.get('quantization')}), "
+          f"max output tokens {args.max_output_tokens}.")
+
+
 # ------------------------------ CLI ------------------------------ #
 async def main() -> None:
     args = cmdline_args
@@ -392,9 +574,17 @@ async def main() -> None:
         opts["reasoning_effort"] = args.reasoning_effort
     if args.temperature is not None:
         opts["temperature"] = args.temperature
+    if args.flex_tier:
+        if args.provider != "OpenAI":
+            die("Error: --flex-tier is supported only with --provider OpenAI.")
+        opts["flex_tier"] = True
     model = args.model
 
-    openai_kwargs = {"timeout": args.timeout, "max_retries": 5}
+    timeout = args.timeout
+    if timeout is None:
+        timeout = FLEX_TIMEOUT_SECONDS if args.flex_tier else DEFAULT_TIMEOUT_SECONDS
+    max_retries = FLEX_MAX_RETRIES if args.flex_tier else DEFAULT_MAX_RETRIES
+    openai_kwargs = {"timeout": timeout, "max_retries": max_retries}
     cafile = os.getenv("SSL_CERT_FILE")
     if cafile:
         http_client = httpx.AsyncClient(verify=cafile)
@@ -405,13 +595,28 @@ async def main() -> None:
         if not model:
             die("Must specify '--model' parameter, e.g., '--model gpt-oss-120b'.")
         if (cmdline_args.max_output_tokens is None):
-            cmdline_args.max_output_tokens = 16000
+            cmdline_args.max_output_tokens = DEFAULT_MAX_OUTPUT_TOKENS
         if ("/" not in model) and not model.startswith("accounts/fireworks/models/"):
             model = "accounts/fireworks/models/" + model
         args.api_type = "chat_completion"
         client = AsyncOpenAI(
             base_url = "https://api.fireworks.ai/inference/v1",
             api_key=os.environ["FIREWORKS_API_KEY"],
+            **openai_kwargs
+        )
+    elif args.provider == "OpenRouter":
+        if not model:
+            die("Must specify '--model' parameter, e.g., '--model google/gemma-4-31b-it'.")
+        args.api_type = "chat_completion"
+        api_key_name = args.api_key_name or "OPENROUTER_API_KEY"
+        api_key = os.getenv(api_key_name)
+        if not api_key:
+            die(f"Error: environment variable {api_key_name!r} is not set.")
+        if not args.list_models:
+            configure_openrouter_endpoint(model, opts)
+        client = AsyncOpenAI(
+            base_url = args.base_url or OPENROUTER_BASE_URL,
+            api_key=api_key,
             **openai_kwargs
         )
     elif args.provider == "Gemini":

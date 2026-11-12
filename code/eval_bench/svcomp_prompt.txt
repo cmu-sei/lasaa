@@ -24,12 +24,12 @@
 # DM26-0426
 # </legal>
 
-I want you to adjudicate an alert that the following C/C++ code contains an invalid pointer dereference (e.g., buffer overflow, use-after-free, dereferencing an uninitialized pointer, etc.).
+I want you to adjudicate whether the following C/C++ code contains an invalid pointer dereference (e.g., buffer overflow, use-after-free, dereferencing an uninitialized pointer).
 If a function is defined and called in the provided code, then analyze it only in the context of the actual callsites in the provided code; do not speculate on whether extending the code with additional callers would introduce vulnerabilities.
 
 Special rules:
     (1) Assume that there is enough heap memory that `malloc`, `calloc`, and `realloc` never return NULL; ignore any potential executions where heap memory is exhausted.
-    (2) If the program uses stack-allocated variable-length arrays (VLAs) without ensuring that the array size is reasonably limited, treat any potential stack overflows that may occur as true positives.
+    (2) If the program uses stack-allocated variable-length arrays (VLAs) without ensuring that the array size is reasonably limited, flag potential stack overflows that may occur.
 
 If the alert is a true positive, give a trace demonstrating the vulnerability and say `{"verdict": "true"}` at the end of your response.
 If the alert is a false positive, give proof sketch arguing why it is a false positive and say `{"verdict": "false"}` and the end of your response.

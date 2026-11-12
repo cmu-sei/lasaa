@@ -60,7 +60,8 @@ COPY proxy_cert/ /usr/local/share/ca-certificates/
 RUN /usr/sbin/update-ca-certificates
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENV AWS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV HISTCONTROL=ignoreboth
 
-RUN pip install aiofiles openai pyyaml pandas pyarrow xlrd openpyxl requests
+RUN pip install aiofiles "openai==2.54.0" boto3 pyyaml pandas pyarrow xlrd openpyxl requests
 
 CMD ["/bin/bash"]

@@ -89,6 +89,11 @@ Briefly, to build and run:
     docker build -f Dockerfile -t lasaa . # Don't forget the period.
     docker run -it --rm -v ${PWD}:/host -w /host lasaa bash
 
+Additional mount points can be specified with additional `-v` options, e.g.:
+
+    docker run -it --rm -v ${PWD}:/host -v /path/to/target_codebases:/datasets -w /host lasaa bash
+
+
 ## Testing the connection to the LLM endpoint
 
 The `ask_gpt.py` script makes a query to an LLM and records the answer.
@@ -222,7 +227,9 @@ You can re-use the intermediate results by re-using the output directory:
 
     ./adjudicate_alerts.py --alerts alerts.json -o out -b example_src --cc 1 --lre 1 -n 10
 
-In the header line of each `.final_answer` file, LASAA records the options used.
+In the header line of each `.final_answer` file, LASAA records the model, the
+reasoning effort, the total token counts, and the options used.  A second
+header line, `# used=`, names the query/reply files that produced the answer.
 LASAA automatically deletes the `.final_answer` files when running with
 different options.  The `.final_answer` files are cheap to regenerate if all
 the `.reply` files already exist.

@@ -38,22 +38,41 @@ import argparse
 import sys
 
 
+def split_lines(file_contents):
+    """Split *file_contents* into lines at "\n" only, keeping line endings.
+
+    We deliberately avoid str.splitlines(), which also breaks on form feed
+    (\x0c), vertical tab (\x0b), \x1c-\x1e, NEL (\x85), and U+2028/U+2029.
+    Real source files contain some of those: ImageMagick, for instance, uses
+    ASCII form feeds as section separators.  Counting them as line breaks makes
+    our line numbers disagree with ctags, git, sed, wc, and the numbers the
+    annotator recorded, which silently shifts both the flagged line reported to
+    the LLM and the extracted enclosing-function body.
+    """
+    parts = file_contents.split("\n")
+    lines = [part + "\n" for part in parts[:-1]]
+    if parts[-1] != "":
+        lines.append(parts[-1])
+    return lines
+
+
 def add_line_nums(file_contents, ret_as_line_list=False):
     """
     Takes the full text of a file as a single string, and returns a new string
     where each line (unless it ends with a backslash) has " // Line N" appended,
     with N being the 1-based line number.
+
+    Lines are delimited by "\n" only; see split_lines().
     """
     out_lines = []
-    # splitlines(True) preserves the line-ending characters
-    lines = file_contents.splitlines(keepends=True)
+    lines = split_lines(file_contents)
     for idx, line in enumerate(lines, start=1):
         # Separate the line content from its newline(s)
         # so we can re-attach them after appending our marker.
         if line.endswith("\r\n"):
             content, newline = line[:-2], "\r\n"
-        elif line.endswith("\n") or line.endswith("\r"):
-            content, newline = line[:-1], line[-1]
+        elif line.endswith("\n"):
+            content, newline = line[:-1], "\n"
         else:
             content, newline = line, ""
 

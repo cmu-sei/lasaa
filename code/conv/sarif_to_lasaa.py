@@ -32,18 +32,23 @@ warning and only the first is used) and writes a JSON list of alert dicts.
 
 Two modes:
 
-  Default                : write LASAA input JSON (the alert dicts below).
+  Default                  : write LASAA input JSON (the alert dicts below).
       ./sarif_to_lasaa.py orig.sarif [-b BASE] -o alerts_for_lasaa.json
 
-  Update (-u ADJUDICATIONS): write an *updated SARIF* file in which each
-      result is annotated with the LASAA verdict and explanation from the
-      adjudications JSON (a list of {Alert_ID, verdict, explanation} dicts).
+  Update (-u ADJUDICATIONS): write an *updated SARIF* file.
+      ./sarif_to_lasaa.py orig.sarif -u adjudications.json [-b BASE] -o updated.sarif
+      
+      In update mode, each result is annotated with the LASAA verdict
+      and explanation from the adjudications JSON (a list of
+      {Alert_ID, verdict, explanation} dicts).
       Adjudications are matched to results by Alert_ID, so pass the same
       SARIF file and --base-dir used for the original conversion.
       The verdict + explanation are stored in each result's
-      `properties.lasaa`; results whose verdict is a "false positive" also
-      optionally get a standard SARIF `suppressions` entry.
-      ./sarif_to_lasaa.py orig.sarif -u adjudications.json [-b BASE] -o updated.sarif
+      `properties.lasaa`, along with `adjudicator_type`, `llm_verdict`,
+      `llm_explanation`, and `dep_on_line` when the adjudication has them;
+      results whose verdict is "false positive" also optionally get a
+      standard SARIF `suppressions` entry (--sup-fp; with --sup-fp-manual, only
+      for manual verdicts).
 
 Each alert dict contains three categories of fields:
 
@@ -66,6 +71,8 @@ Each alert dict contains three categories of fields:
 (C) Filter-only fields: useful for selecting which alerts to feed to the LLM
     (e.g., "only error-level" or "security-severity >= 7"):
       Level             : "error" | "warning" | "note" | "none"
+                          (SARIF's default "warning" when the result and its
+                          rule give none; with --no-default-level, omitted)
       SecuritySeverity  : float 0-10  (CodeQL/GitHub style, when present)
       Rank              : float 0-100 (SARIF rank, when present)
       BaselineState     : "new" | "unchanged" | "updated" | "absent"
@@ -83,6 +90,7 @@ import re
 import sys
 import hashlib
 from typing import Any, Optional
+from urllib.parse import unquote
 
 
 # -------------------------- CWE extraction helpers --------------------------
@@ -287,6 +295,7 @@ def resolve_path(uri: Optional[str], uri_base_id: Optional[str],
             uri = base_uri + sep + uri
     if uri.startswith('file://'):
         uri = uri[len('file://'):]
+    uri = unquote(uri)              # "a%20b.c" is the file "a b.c"
     if base_dir and uri.startswith(base_dir):
         uri = uri[len(base_dir):]
     return uri
@@ -294,12 +303,12 @@ def resolve_path(uri: Optional[str], uri_base_id: Optional[str],
 
 # ---------------------- Severity, flows, tags ---------------------------
 
-def severity_info(result, rule) -> tuple:
+def severity_info(result, rule, default_level='warning') -> tuple:
     level = result.get('level')
     if not level and rule:
         level = (rule.get('defaultConfiguration') or {}).get('level')
     if not level:
-        level = 'warning'              # SARIF default
+        level = default_level          # SARIF default: 'warning'
 
     sec_sev = None
     rprops = result.get('properties') or {}
@@ -319,7 +328,7 @@ def severity_info(result, rule) -> tuple:
     return level, sec_sev, rank
 
 
-def code_flow_summary(result):
+def code_flow_summary(result, base_uris, base_dir):
     """Compact summary of the first thread of the first code flow."""
     flows = result.get('codeFlows') or []
     if not flows:
@@ -334,7 +343,8 @@ def code_flow_summary(result):
         art = phys.get('artifactLocation') or {}
         region = phys.get('region') or {}
         msg = ((location.get('message') or {}).get('text') or '').strip()
-        uri = art.get('uri') or '?'
+        uri = resolve_path(art.get('uri'), art.get('uriBaseId'),
+                           base_uris, base_dir) or '?'
         line = region.get('startLine')
         loc_str = f"{uri}:{line}" if line is not None else uri
         step_summary = {
@@ -370,7 +380,8 @@ def convert_result(result, run, base_uris, tool_name, args) -> dict:
 
     message = resolve_message(result, rule)
     cwes    = extract_cwes(result, rule)
-    level, sec_sev, rank = severity_info(result, rule)
+    level, sec_sev, rank = severity_info(
+        result, rule, None if getattr(args, 'no_default_level', False) else 'warning')
 
     rule_name = (rule or {}).get('name')
     rule_desc = ((rule or {}).get('shortDescription') or {}).get('text')
@@ -384,7 +395,7 @@ def convert_result(result, run, base_uris, tool_name, args) -> dict:
     elif rule_help and rule_help.strip() != short:
         longer_help = rule_help
 
-    cflow = code_flow_summary(result)
+    cflow = code_flow_summary(result, base_uris, args.base_dir)
     tags  = collect_tags(result, rule)
 
     suppressions = result.get('suppressions') or []
@@ -421,7 +432,8 @@ def convert_result(result, run, base_uris, tool_name, args) -> dict:
         alert["CodeFlow"] = cflow
 
     # ---- (C) Filter-only fields ----
-    alert["Level"] = level
+    if level:
+        alert["Level"] = level
     if sec_sev is not None:
         alert["SecuritySeverity"] = sec_sev
     if rank is not None:
@@ -517,17 +529,24 @@ def annotate_result(result: dict, adjudication: dict) -> None:
         lasaa["verdict"] = verdict
     if explanation is not None:
         lasaa["explanation"] = explanation
+    for key in ("adjudicator_type", "llm_verdict", "llm_explanation", "dep_on_line"):
+        if adjudication.get(key) is not None:
+            lasaa[key] = adjudication[key]
     props["lasaa"] = lasaa
 
     # (2) Optionally emit a standard suppression for false positives.
     global cmdline_args
+    manual = adjudication.get("adjudicator_type") == "manual"
     if cmdline_args.sup_fp and isinstance(verdict, str) and \
-            verdict.strip().lower() == "false":
+            verdict.strip().lower() == "false" and \
+            (manual or not cmdline_args.sup_fp_manual):
         suppression = {
             "kind": "external",        # the verdict comes from outside the source
             "status": "accepted",
             "properties": {"source": "LASAA"},
         }
+        if adjudication.get("adjudicator_type"):
+            suppression["properties"]["adjudicator_type"] = adjudication["adjudicator_type"]
         if explanation:
             suppression["justification"] = explanation
         result.setdefault("suppressions", []).append(suppression)
@@ -591,6 +610,15 @@ def main(argv=None):
                          "as the original conversion so the Alert_IDs match.")
     ap.add_argument("--sup-fp", action="store_true",
                     help="When updating the SARIF file, add a 'suppressions' entry for false positives")
+    ap.add_argument("--sup-fp-manual", action="store_true",
+                    help="With --sup-fp, suppress only alerts whose adjudicator_type is "
+                         "'manual' (a person, not the LLM, said false)")
+    ap.add_argument("--no-default-level", action="store_true",
+                    help="Leave out the Level field when neither the result nor its "
+                         "rule gives a level, instead of filling in SARIF's default "
+                         "'warning' (Clang Static Analyzer gives none).  This changes "
+                         "the Alert_IDs, so pass it with -u too if it was used for "
+                         "the original conversion.")
     args = ap.parse_args(argv)
 
     global cmdline_args

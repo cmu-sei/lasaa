@@ -37,6 +37,7 @@ Format 1: JSON list of dicts
 There are a few special fields:
  - Alert_ID: Unique identifier of the alert.  It appears in filenames of generated files, so try to keep it reasonably short.  You can use a different name for this field by setting the LASAA_ALERT_ID_FIELD environment variable.
  - Path: If present, indicates the directory in which File resides.  If absent, File must include the path information. Paths are relative to the base directory specified by the "-b"/"--base-dir" option.
+ - Base_Dir: If present, overrides the "-b"/"--base-dir" option for this alert: Path and File (and the File fields of extra-context locations, described below) are relative to Base_Dir.  A relative Base_Dir is interpreted relative to the directory given by "-b".  LASAA runs ctags separately on each distinct Base_Dir (instead of on "--src-dir"), so this lets one run of LASAA cover alerts from multiple codebases (e.g., the before-fix and after-fix versions of many projects).  For such alerts, source files are shown to the LLM with paths relative to Base_Dir, and the Base_Dir field itself is not shown to the LLM unless --fields-for-llm (or LASAA_FIELDS_FOR_LLM) lists it.  All sub-alerts of a fused alert (Format 3) must have the same Base_Dir.  (The lowercase name "base_dir" is also accepted.)
  - File: Filename (including path, if the Path field is absent)
  - Line: Line number
  - CWEs: A list of zero of more CWE IDs.  Can be a JSON list, or can be a string with commas separating CWE IDs, like "CWE-123, CWE-456".  Can be blank.
@@ -48,9 +49,11 @@ LASAA will use the Path, File, and Line fields to extract the source-code text
 It can also include the source code of additional relevant functions referenced
 by the alert.  The `--more-ctx-fields` option specifies a comma-separated list
 of top-level alert fields to search for these references (default:
-`Traces,CodeFlow,MoreContext`).  Each such field should contain either a list of
-dicts or a list of lists of dicts.  A dict that has both a `File` field and a
-`Line` field identifies the function containing that location.  LASAA includes
+`Traces,CodeFlow,MoreContext,AdditionalLocations`).  Each such field should
+contain either a list of dicts or a list of lists of dicts.  A dict that has
+both a `File` field and a `Line` field (or `file` and `line`, as in the
+`AdditionalLocations` that conv/cppcheck_to_lasaa.py writes) identifies the
+function containing that location.  LASAA includes
 that function's source code in the LLM query; duplicate function snippets are
 included only once.  For example:
 
@@ -71,7 +74,7 @@ or:
 Use `--more-ctx-fields` to replace the default list when the input format uses
 different top-level field names.
 
-By default, all fields except Alert_ID are provided to the LLM.  To provide only some of the fields to the LLM, use the `LASAA_FIELDS_FOR_LLM` environment variable.  A field may contain structured JSON data; it is converted to text by Python `repr`.
+By default, all fields except Alert_ID are provided to the LLM.  To provide only some of the fields to the LLM, use the `--fields-for-llm` command-line option (e.g., `--fields-for-llm File,Line,CWEs,Message`) or the `LASAA_FIELDS_FOR_LLM` environment variable; the command-line option takes precedence.  A field may contain structured JSON data; it is converted to text by Python `repr`.
 
 If your alerts don't have ID numbers, LASAA can add them as follows:
 
