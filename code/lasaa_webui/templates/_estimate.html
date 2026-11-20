@@ -1,0 +1,57 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{# The run form's estimate (the inside of #estimate).  As an htmx response
+   (oob), it also resets #run-actions: a prepared run no longer matches. #}
+{% from "_money.html" import money %}
+<h2>Cost Estimate</h2>
+{% if est_error %}
+<pre class="error">{{ est_error }}</pre>
+{% elif e is none %}
+<p class="muted">Measuring the prompts (a dry run of the pipeline)…</p>
+{% else %}
+<p>{{ sel.alert_ids | length }} alert{{ "s" if sel.alert_ids | length != 1 }} chosen
+  {%- if sel.scope == "sample" %} (a random sample from {{ sel.population }}){% endif %}
+  {%- for why, n in (sel.skipped or {}).items() %}; {{ n }} left out ({{ why }}){% endfor %}.
+  {{ e.trials }} first-round trial{{ "s" if e.trials != 1 }}{% if e.cached %}, of which {{ e.cached }} are already answered (free){% endif %}.
+  {% if not e.exact %}<span class="warn">Estimated from the prompts of {{ e.measured }} alert{{ "s" if e.measured != 1 }}{% if e.measured != e.selected %} (of {{ e.selected }} chosen){% endif %}{% if measuring %}; still measuring the rest{% endif %}.</span>{% endif %}
+  {% if e.no_prompt %}<span class="warn">{{ e.no_prompt }} alert{{ "s" if e.no_prompt != 1 }} get{{ "s" if e.no_prompt == 1 }} no prompt (the file is outside the snapshot, or LASAA couldn't find the function) and cost nothing in this estimate.</span>{% endif %}</p>
+<table class="list est">
+  <thead><tr><th></th><th class="num">Input tokens</th><th class="num">Output tokens</th><th class="num">Cost</th></tr></thead>
+  <tr><td>Low (first round only)</td><td class="num">{{ "{:,}".format(e.low[0]) }}</td><td class="num">{{ "{:,}".format(e.low[1]) }}</td><td class="num">{{ money(e.low_cost) }}</td></tr>
+  <tr><td>High (with {{ "LRE and " if opts.LRE }}definition rounds)</td><td class="num">{{ "{:,}".format(e.high[0]) }}</td><td class="num">{{ "{:,}".format(e.high[1]) }}</td><td class="num">{{ money(e.high_cost) }}</td></tr>
+</table>
+<p class="muted small">
+  {% if e.price %}Prices: ${{ e.price.input }} input / ${{ e.price.output }} output per million tokens, as of {{ e.price.as_of }} (model_prices.csv; cached input counted at the full price).{% else %}No price for this model in model_prices.csv, so the budget is in tokens.{% endif %}
+  {% set h = e.history %}{% set eff = "this model" + ((" at effort " + effort) if effort and h.effort_matched else "") %}
+  Output per reply: {{ "{:,}".format(h.output_per_reply | round | int) }} tokens{% if h.replies %} (the average of {{ h.replies }} earlier replies from {{ eff }}{% if h.answer_per_reply < h.output_per_reply %}; {{ "{:,}".format(h.answer_per_reply | round | int) }} without the reasoning, which LRE prompts leave out{% endif %}){% else %} (a default; no earlier replies from this model){% endif %}.
+  {% if h.results %}From {{ h.results }} earlier result{{ "s" if h.results != 1 }} from {{ eff }}: {% if opts.LRE %}LRE for {{ (h.lre_rate * 100) | round | int }}% of alerts, {% endif %}{{ "%.1f" | format(h.defs_rounds) }} definition rounds per alert.{% else %}With no earlier results from this model, the high end assumes {% if opts.LRE %}LRE and {% endif %}one definition round for every alert.{% endif %}
+  {% if not h.effort_matched and (h.replies or h.results) %}<span class="warn">None of them were at effort {{ effort or "(default)" }}, which may use a different number of reasoning tokens.</span>{% endif %}
+</p>
+{% endif %}
+{% if measuring %}<div hx-post="/analysis/{{ an.analysis_id }}/estimate?wait={{ sizes_version }}" hx-trigger="load" hx-target="#estimate" hx-swap="innerHTML" hx-sync="closest form:replace"></div>{% endif %}
+{% if oob %}{% include "_run_actions.html" %}{% endif %}

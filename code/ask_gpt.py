@@ -37,6 +37,8 @@ from datetime import datetime, timezone
 
 import aiofiles                # pip install aiofiles
 
+import multi_turn
+
 # Output-token cap for providers that need one (Fireworks, OpenRouter).  It
 # must leave room for long reasoning: at the earlier cap of 16000, some
 # gpt-oss replies were cut off before their verdict line.
@@ -51,6 +53,9 @@ DEFAULT_TIMEOUT_SECONDS = 20 * 60
 FLEX_TIMEOUT_SECONDS = 30 * 60
 DEFAULT_MAX_RETRIES = 5
 FLEX_MAX_RETRIES = 10
+
+# The header that --mock-llm-server sends (see trial_headers())
+TRIAL_HEADER = "X-LASAA-Trial"
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -78,10 +83,17 @@ def parse_args():
     parser.add_argument("--max-output-tokens", type=int,
                         help="Output-token cap (default for Fireworks and OpenRouter: "
                              f"{DEFAULT_MAX_OUTPUT_TOKENS}; otherwise none)")
+    parser.add_argument("--multi-turn", action="store_true",
+                        help="Query files are conversations in multi_turn.py's format "
+                             "('# User' / '# Assistant' turns), not a single prompt")
     parser.add_argument("--check-verdict", type=int, default=0,
                         choices=[0, 1], help="Redo queries that lack a verdict line")
     parser.add_argument("--print-skipped", type=int,
                         choices=[0, 1], help="Print which queries already have answers")
+    parser.add_argument("--mock-llm-server", action="store_true",
+                        help="For mock_llm_server.py: send each request's trial number "
+                             "(KK of X.tryKK.reply; 0 for X.reply) in an "
+                             f"'{TRIAL_HEADER}' HTTP header.  Other servers ignore it.")
     global cmdline_args
     cmdline_args = parser.parse_args()
     
@@ -100,9 +112,31 @@ def die(msg):
     sys.stderr.write(msg + "\n")
     sys.exit(1)
 
+def read_messages(prompt: str, query_path) -> list[dict]:
+    """The messages of a query: one user message, or with --multi-turn,
+    the conversation in the file (multi_turn.py), its System turn first."""
+    if not cmdline_args.multi_turn:
+        return [{"role": "user", "content": prompt}]
+    try:
+        return multi_turn.parse(prompt)
+    except multi_turn.FormatError as e:
+        raise ValueError(f"'{query_path}': {e}") from None
+
 def reasoning_effort_label() -> str:
     """The reasoning effort requested on the command line, for reply headers."""
     return cmdline_args.reasoning_effort or "default"
+
+# -------------------- trial-number header ----------------------- #
+_TRY_RE = re.compile(r'\.try(?P<k>[0-9]+)\.reply$')
+
+def trial_headers(reply_path: Path) -> dict:
+    """With --mock-llm-server, {TRIAL_HEADER: K} for reply X.tryKK.reply
+    (0 for X.reply); otherwise {}.  mock_llm_server.py serves the cached
+    reply of that trial."""
+    if not cmdline_args.mock_llm_server:
+        return {}
+    m = _TRY_RE.search(reply_path.name)
+    return {TRIAL_HEADER: str(int(m.group("k"))) if m else "0"}
 
 # -------------------- runN expansion helper ---------------------- #
 _RUN_RE = re.compile(r'^(?P<base>.+)\.run(?P<n>[0-9]+)\.query$')
@@ -181,6 +215,8 @@ async def process_query_file_via_response_api(
     # --- call OpenAI (Responses) -----------------------------------
     try:
         extra_kwargs = {}
+        if cmdline_args.mock_llm_server:
+            extra_kwargs["extra_headers"] = trial_headers(reply_path)
         if opts.get("reasoning_effort"):
             # Supported by reasoning models via the Responses API
             extra_kwargs["reasoning"] = {"effort": opts["reasoning_effort"]}
@@ -191,9 +227,16 @@ async def process_query_file_via_response_api(
         if cmdline_args.max_output_tokens:
             extra_kwargs["max_output_tokens"] = cmdline_args.max_output_tokens
 
+        if cmdline_args.multi_turn:
+            system, messages = multi_turn.system_and_messages(read_messages(prompt, query_path))
+            if system is not None:
+                extra_kwargs["instructions"] = system
+            api_input = messages
+        else:
+            api_input = prompt
         resp = await client.responses.create(
             model=model,
-            input=prompt,          # you can also pass [{"role":"user","content": prompt}]
+            input=api_input,
             **extra_kwargs
         )
 
@@ -284,7 +327,7 @@ async def process_query_file_via_chat_completion(
     query_path: Path,
     reply_path: Path,
     client: AsyncOpenAI,
-    model: str = "o4-mini-2025-04-16",
+    model: str = "gpt-6-luna",
     opts = None,
     breaker = None
 ) -> None:
@@ -317,6 +360,8 @@ async def process_query_file_via_chat_completion(
         extra_kwargs["service_tier"] = "flex"
     if opts and opts.get("extra_body"):
         extra_kwargs["extra_body"] = opts["extra_body"]
+    if cmdline_args.mock_llm_server:
+        extra_kwargs["extra_headers"] = trial_headers(reply_path)
     try:
         if os.getenv("SIMULATE_503") == "1":
             req = httpx.Request("POST", "https://example.test/v1/chat/completions")
@@ -328,7 +373,7 @@ async def process_query_file_via_chat_completion(
             raise openai.APIStatusError("simulated 503", response=resp, body=resp.json())
         stream = await client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=read_messages(prompt, query_path),
             stream=True,  # Enable streaming
             **extra_kwargs
         )
@@ -455,12 +500,12 @@ async def run_tasks(task_pairs: list[tuple[Path, Path]], client: AsyncOpenAI, ap
     """
     sem = asyncio.Semaphore(concurrency)
     breaker = CircuitBreaker(threshold=7)
-    min_est_time_per_query = 5.0
+    min_est_time_per_query = (5.0 if not cmdline_args.mock_llm_server else 0.5)
     delay = min_est_time_per_query / max(concurrency, 10)
 
     async def _bounded_task(idx, query_path: Path, reply_path: Path):
         start_time = time.time()
-        init_delay = (0 if idx == 0 else 0.100)
+        init_delay = (0 if idx == 0 or cmdline_args.mock_llm_server else 0.100)
         tot_delay = init_delay + idx * delay
         await asyncio.sleep(tot_delay)  # stagger launches
         async with sem:
@@ -590,6 +635,9 @@ async def main() -> None:
         http_client = httpx.AsyncClient(verify=cafile)
         openai_kwargs["http_client"] = http_client
 
+    if args.base_url and (args.api_type is None):
+        args.api_type = "chat_completion"
+
     client = None
     if args.provider == "Fireworks":
         if not model:
@@ -632,7 +680,7 @@ async def main() -> None:
             **openai_kwargs
         )
     else:
-        default_model = "o4-mini-2025-04-16"
+        default_model = "gpt-6-luna"
         if args.base_url:
             openai_kwargs["base_url"] = args.base_url
             if (args.api_type == None):
@@ -707,6 +755,13 @@ async def main() -> None:
     else:
         if len(skipped) > 0:
             print(f"Skipping {len(skipped)} files because reply already exists.")
+    if cmdline_args.multi_turn:
+        # Check every conversation before sending anything.
+        for qp in sorted({qp for qp, _ in task_pairs}):
+            try:
+                multi_turn.parse(qp.read_text(encoding="utf-8"))
+            except multi_turn.FormatError as e:
+                die(f"Error: '{qp}': {e}")
     print(f"Number of queries to send to the LLM: {len(task_pairs)}")
 
     await run_tasks(task_pairs, client, args.api_type, model, opts, args.concurrency)

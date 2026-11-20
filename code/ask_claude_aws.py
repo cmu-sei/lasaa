@@ -53,6 +53,11 @@ and the remaining tries are sent as soon as it finishes (ahead of queries not
 yet started), because a cache entry cannot be read until the request that
 writes it has begun responding.
 
+With --multi-turn, each query file is a conversation (see multi_turn.py),
+and the last user message is marked for caching whatever the number of
+tries, so that a follow-up question sent within the cache lifetime reads the
+conversation so far from the cache.
+
 Reply headers report `input_tokens` (all prompt tokens, including cached
 ones), `cached_input_tokens` (tokens read from the cache), and, when nonzero,
 `cache_write_input_tokens` (tokens written to the cache).
@@ -69,6 +74,8 @@ import json
 import traceback
 
 import aiofiles                # pip install aiofiles
+
+import multi_turn
 
 def parse_args():
     # --help shows only the overview and the options, to fit on one screen;
@@ -97,6 +104,9 @@ def parse_args():
     parser.add_argument("--prompt-cache", choices=["5m", "1h", "off"], default="5m",
                         help="Cache lifetime for prompts sent more than once (the tries of a "
                              ".runN.query file), or 'off' (default: %(default)s)")
+    parser.add_argument("--multi-turn", action="store_true",
+                        help="Query files are conversations in multi_turn.py's format "
+                             "('# User' / '# Assistant' turns), not a single prompt")
     parser.add_argument("--print-skipped", type=int,
                         choices=[0, 1], help="Print which queries already have answers")
     global cmdline_args
@@ -165,21 +175,29 @@ def model_supports_adaptive_thinking(model: str) -> bool:
 
 
 def build_request_body(prompt: str, opts) -> dict:
-    """Anthropic Messages request body for InvokeModel."""
-    content = {"type": "text", "text": prompt}
+    """Anthropic Messages request body for InvokeModel.  With
+    opts["multi_turn"], *prompt* is a conversation (multi_turn.py), and the
+    cache breakpoint goes on its last message."""
+    if opts.get("multi_turn"):
+        system, turns = multi_turn.system_and_messages(multi_turn.parse(prompt))
+    else:
+        system, turns = None, [{"role": "user", "content": prompt}]
+    messages = [{"role": t["role"], "content": [{"type": "text", "text": t["content"]}]}
+                for t in turns]
     if opts.get("cache_ttl"):
         # An explicit breakpoint (rather than top-level automatic caching, which
         # older Bedrock deployments reject) caches the whole prompt.
+        content = messages[-1]["content"][0]
         content["cache_control"] = {"type": "ephemeral"}
         if opts["cache_ttl"] != "5m":
             content["cache_control"]["ttl"] = opts["cache_ttl"]
     body = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": opts["max_tokens"],
-        "messages": [
-            {"role": "user", "content": [content]}
-        ],
+        "messages": messages,
     }
+    if system is not None:
+        body["system"] = system
     if opts.get("thinking", True):
         body["thinking"] = {"type": "adaptive"}
         body["output_config"] = {"effort": opts["effort"]}  # This is the reasoning effort.
@@ -390,8 +408,9 @@ async def run_tasks(task_pairs: list[tuple[Path, Path]], client, model, opts, co
         init_delay = (0 if idx == 0 else 0.100)
         tot_delay = init_delay + idx * delay
         await asyncio.sleep(tot_delay)  # stagger launches
-        if len(reply_paths) == 1:
+        if len(reply_paths) == 1 and not opts.get("multi_turn"):
             # Nothing would read a cache entry, so don't pay to write one.
+            # (A conversation's next question will read it.)
             await _query(query_path, reply_paths[0], 1, dict(opts, cache_ttl=None))
             return
         await _query(query_path, reply_paths[0], 1, opts)
@@ -430,6 +449,7 @@ async def main() -> None:
         "effort": args.reasoning_effort or "high",
         "max_tokens": args.max_output_tokens or 60000,
         "cache_ttl": None if args.prompt_cache == "off" else args.prompt_cache,
+        "multi_turn": args.multi_turn,
     }
     if not model_supports_adaptive_thinking(model):
         # Such models reject adaptive thinking and the effort setting, so run without thinking.
@@ -439,6 +459,8 @@ async def main() -> None:
         opts["effort"] = "none"
 
     task_pairs = gather_task_pairs(args.paths)
+    if args.multi_turn:
+        check_multi_turn(task_pairs)
 
     print(f"Number of queries to send to the LLM: {len(task_pairs)}")
 
@@ -460,6 +482,15 @@ async def main() -> None:
     )
 
     await run_tasks(task_pairs, client, model, opts, args.concurrency)
+
+
+def check_multi_turn(task_pairs) -> None:
+    """Exit, before sending anything, if a query isn't a valid conversation."""
+    for qp in sorted({qp for qp, _ in task_pairs}):
+        try:
+            multi_turn.parse(qp.read_text(encoding="utf-8"))
+        except multi_turn.FormatError as e:
+            die(f"Error: '{qp}': {e}")
 
 
 def gather_task_pairs(paths: list[str]) -> list[tuple[Path, Path]]:

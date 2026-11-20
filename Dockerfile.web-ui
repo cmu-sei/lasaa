@@ -1,0 +1,54 @@
+###################################################################
+#
+# Image for the LASAA web UI (code/lasaa_webui/): adds the web server's
+# Python packages to the demo image, which already has the analyzers
+# (Clang Static Analyzer and Cppcheck) that the UI runs.
+#
+# To build (if the demo image is tagged "lasaa-demo"):
+#   docker build -f Dockerfile.web-ui -t lasaa-web-ui .
+#
+# To build on a different image (e.g., the base "lasaa" image, for
+# browsing existing results without running analyzers):
+#   docker build -f Dockerfile.web-ui --build-arg BASE_IMAGE=<tag> -t lasaa-web-ui .
+#
+# To run, see code/lasaa_webui/README.md (it publishes the port on the
+# host's loopback interface only, and mounts the code read-only).
+#
+###################################################################
+# <legal>
+# LASAA tool
+#
+# Copyright 2026 Carnegie Mellon University.
+#
+# NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+# INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+# UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+# TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+# OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+# MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+# WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+#
+# Licensed under a MIT (SEI)-style license, please see License.txt or contact
+# permission@sei.cmu.edu for full terms.
+#
+# [DISTRIBUTION STATEMENT A] This material has been approved for public
+# release and unlimited distribution.  Please see Copyright notice for
+# non-US Government use and distribution.
+#
+# This Software includes and/or makes use of Third-Party Software each subject
+# to its own license.
+#
+# DM26-0426
+# </legal>
+
+ARG BASE_IMAGE=lasaa-demo
+FROM ${BASE_IMAGE}
+
+# httpx is needed only by the tests (FastAPI's TestClient).
+RUN pip install fastapi uvicorn jinja2 python-multipart markdown-it-py pygments httpx
+
+# The unprivileged user that builds run as (lasaa_webui/snapshot.py,
+# BUILD_UID).  Builds work without this account; it gives the uid a name.
+RUN groupadd --system --gid 65532 lasaa-build \
+    && useradd --system --uid 65532 --gid 65532 --no-create-home \
+               --home-dir /nonexistent --shell /usr/sbin/nologin lasaa-build

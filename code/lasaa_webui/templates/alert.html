@@ -1,0 +1,229 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{% extends "base.html" %}
+{% from "_code.html" import code_pane %}
+{% block title %}{{ alert.file }}:{{ alert.line }} {{ alert.rule or "" }}{% endblock %}
+{% from "_crumbs.html" import project_crumbs %}
+{% block crumbs %}{{ project_crumbs(proj, snap) }}<span class="crumb"><a id="list-link" href="{{ list_url }}">Analysis {{ an.analysis_id }}</a></span>{% endblock %}
+{% block page %}alert{% endblock %}
+{% block content %}
+{% if saved %}
+<p class="flash">
+  {% if saved.here %}Saved.{% else %}Saved your review of <a href="/analysis/{{ an.analysis_id }}/alert/{{ saved.alert.basename }}{{ nav_qs }}">{{ saved.alert.file }}:{{ saved.alert.line }}</a>:{% endif %}
+  {% if saved.review %}<span class="badge v-{{ saved.review.verdict }}">{{ saved.review.verdict }}</span>{% else %}now unreviewed{% endif %}
+</p>
+{% endif %}
+<div class="alert-head">
+  <div class="nav">
+    {% if prev_b %}<a href="/analysis/{{ an.analysis_id }}/alert/{{ prev_b }}{{ nav_qs }}" rel="prev">← Previous</a>{% else %}<span class="muted">← Previous</span>{% endif %}
+    <a href="{{ list_url }}">{% if pos is not none %}{{ pos + 1 }} of {{ n_list }}{% else %}Back to list{% endif %}</a>
+    {% if next_b %}<a href="/analysis/{{ an.analysis_id }}/alert/{{ next_b }}{{ nav_qs }}" rel="next">Next →</a>{% else %}<span class="muted">Next →</span>{% endif %}
+  </div>
+  <h1>
+    {% if lasaa and not hidden %}<span class="badge big v-{{ lasaa.r.verdict or 'none' }}">{{ lasaa.r.verdict or "not adjudicated" }}</span>{% endif %}
+    {{ alert.rule or "Alert" }}
+    <span class="muted">{{ alert.file }}:{{ alert.line }}</span>
+    {% if alert.external %}<span class="tag">external</span>{% endif %}
+  </h1>
+  <p class="message">{{ alert.message or "" }}</p>
+  <p class="muted">
+    {% if alert.tool %}{{ alert.tool }} · {% endif %}{% if cwes %}{{ cwes | join(", ") }} · {% endif %}{% if alert.severity %}{{ alert.severity }} · {% endif %}ID {{ alert.alert_id }}
+    {% if show_editor_links %}· <a id="editor-link" href="{{ editor }}">Open in editor</a>{% endif %}
+  </p>
+</div>
+
+<div class="detail">
+  <div class="col-code">
+    <div class="pane-tools">
+      {% if full %}<a href="{{ self_url }}{{ nav_qs }}">Show enclosing functions only</a>
+      {% else %}<a href="{{ self_url }}{{ nav_qs }}{{ '&' if nav_qs else '?' }}full=1">Expand to whole files</a>{% endif %}
+    </div>
+    {% for p in panes %}
+      {% if p.missing %}
+      <section class="pane"><div class="pane-head">{{ p.file }}</div><p class="muted pad">This file isn't in the snapshot.</p></section>
+      {% else %}{{ code_pane(p, snap) }}{% endif %}
+    {% else %}
+      <p class="muted">The alert has no location.</p>
+    {% endfor %}
+    <details class="pane">
+      <summary>Alert fields</summary>
+      <table class="fields">
+        {% for k, v in fields %}<tr><th>{{ k }}</th><td><pre>{{ v }}</pre></td></tr>{% endfor %}
+      </table>
+    </details>
+  </div>
+
+  <div class="col-lasaa">
+    {% set shown_run = lasaa.r.run_id if lasaa else "" %}
+    <section class="pane pad review" id="review">
+      <h2>Your review</h2>
+      {% if review %}
+      <p>
+        <span class="badge big v-{{ review.verdict }}">{{ review.verdict }}</span>
+        {% if not hidden and lasaa and lasaa.r.verdict %}{% if review.verdict == lasaa.r.verdict %}<span class="muted">agrees with the LLM</span>{% else %}<span class="warn">the LLM said {{ lasaa.r.verdict }}</span>{% endif %}{% endif %}
+        {% if review.blind %}<span class="tag">blind</span>{% endif %}
+      </p>
+      {% if review.dep_on_line %}<p class="small">Depends on {{ review.dep_on_line }}</p>{% endif %}
+      {% if review.note %}<div class="md note">{{ review.note | markdown }}</div>{% endif %}
+      {% else %}
+      <p class="muted">Not reviewed yet.</p>
+      {% endif %}
+      {% if lasaa and lasaa.r.verdict and not hidden %}
+      <form method="post" action="{{ self_url }}/review" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="hidden" name="op" value="confirm">
+        <input type="hidden" name="go" value="next">
+        <input type="hidden" name="run" value="{{ shown_run }}">
+        <input type="hidden" name="back" value="{{ back_url }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <button id="confirm-btn" class="primary">Confirm {{ lasaa.r.verdict }} and go to next <kbd>c</kbd></button>
+      </form>
+      {% endif %}
+      <form id="review-form" method="post" action="{{ self_url }}/review">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="hidden" name="op" value="save">
+        <input type="hidden" name="run" value="{{ shown_run }}">
+        <input type="hidden" name="back" value="{{ back_url }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <fieldset class="verdicts">
+          <legend>{{ "Change the verdict" if review else "Verdict" }}</legend>
+          {% for v in verdicts %}
+          <label class="v-{{ v }}"><input type="radio" name="verdict" value="{{ v }}" id="v-{{ v }}"{% if review and review.verdict == v %} checked{% endif %} required> {{ v }} <kbd>{{ v[0] }}</kbd></label>
+          {% endfor %}
+        </fieldset>
+        <label for="note">Note <span class="muted small">(markdown)</span> <kbd>n</kbd></label>
+        <textarea id="note" name="note" rows="4">{{ review.note if review and review.note else "" }}</textarea>
+        <div class="buttons">
+          <button name="go" value="next" id="save-next-btn" class="primary">Save and go to next <kbd>Ctrl+Enter</kbd></button>
+          <button name="go" value="stay">Save</button>
+        </div>
+      </form>
+      {% if review %}
+      <form method="post" action="{{ self_url }}/review" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="hidden" name="op" value="clear">
+        <input type="hidden" name="back" value="{{ back_url }}">
+        <button class="link">Clear the review (mark unreviewed)</button>
+      </form>
+      {% endif %}
+      {% if history %}
+      <details class="history">
+        <summary>History ({{ history | length }})</summary>
+        <ol>
+          {% for h in history %}
+          <li>
+            <span class="muted small">{{ h.created_at | replace("T", " ") }}</span>
+            {% if h.action == "clear" %}cleared
+            {% else %}
+            <span class="badge v-{{ h.verdict }}">{{ h.verdict }}</span>
+            {{ {"confirm": "confirmed", "override": "set", "note-only": "note edited"}.get(h.action, h.action) }}{% if h.blind %} <span class="tag">blind</span>{% endif %}{% if h.shown_run_id and h.action != "note-only" %} <span class="muted small">(vs. run {{ h.shown_run_id }})</span>{% endif %}
+            {% if h.dep_on_line %}<div class="small">Depends on {{ h.dep_on_line }}</div>{% endif %}
+            {% if h.note %}<div class="md note">{{ h.note | markdown }}</div>{% endif %}
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+      </details>
+      {% endif %}
+    </section>
+
+    {% if results | length > 1 and not hidden %}
+    <nav class="tabs">
+      {% for r in results %}
+      <a href="{{ self_url }}?run={{ r.run_id }}" class="{{ 'current' if lasaa and r.run_id == lasaa.r.run_id else '' }}">Run {{ r.run_id }}: {{ r.model }}{% if r.effort %} ({{ r.effort }}){% endif %}</a>
+      {% endfor %}
+    </nav>
+    {% endif %}
+    {% if hidden %}
+    <section class="pane pad"><p><strong>Blind mode.</strong> The LLM's verdict and explanation are hidden until you save a review of this alert.</p></section>
+    {% elif not lasaa %}
+    <section class="pane pad"><p class="muted">LASAA hasn't looked at this alert yet.</p></section>
+    {% else %}
+    {% set r = lasaa.r %}
+    <section class="pane pad">
+      <div class="verdict-line">
+        <span class="badge big v-{{ r.verdict or 'none' }}">{{ r.verdict or "not adjudicated" }}</span>
+        {% if lasaa.split_text %}<span>{{ lasaa.split_text }}</span>{% endif %}
+        <span class="muted">Run {{ r.run_id }} · {{ r.model }}{% if r.effort %} ({{ r.effort }}){% endif %}{% if lasaa.opts %} · N={{ lasaa.opts.N }}, CC {{ "on" if lasaa.opts.CC else "off" }}, LRE {{ "on" if lasaa.opts.LRE else "off" }}{% endif %}</span>
+      </div>
+      {% if r.verdict is none %}
+      <p class="muted">No final answer yet. The queries below are waiting for replies.</p>
+      {% else %}
+      {% if lasaa.phases and lasaa.phases[-1].kind == "uncert" %}<h3>Why the trials disagreed</h3>{% endif %}
+      <div class="md">{{ lasaa.answer | markdown }}</div>
+      {% if lasaa.reasoning %}
+      <details><summary>Model's reasoning summary</summary><div class="md">{{ lasaa.reasoning | markdown }}</div></details>
+      {% endif %}
+      {% endif %}
+      {% if r.input_tokens is not none %}
+      <p class="muted small">{{ "{:,}".format(r.input_tokens) }} input tokens{% if r.cached_input_tokens is not none %} ({{ "{:,}".format(r.cached_input_tokens) }} cached){% endif %}, {{ "{:,}".format(r.output_tokens or 0) }} output tokens, over all the replies used.</p>
+      {% endif %}
+      {% for w in lasaa.warnings %}<p class="warn small">Note: {{ w }}</p>{% endfor %}
+    </section>
+    {% endif %}
+
+    {% include "_chat.html" %}
+
+    {% if lasaa and not hidden %}
+
+    {% for ph in lasaa.phases | reverse %}
+    <details class="pane">
+      <summary>{{ phase_title(ph.kind) }}
+        {% if ph.kind != "uncert" %}<span class="muted">— {% for v, n in ph.split.most_common() %}{{ n }} {{ v }}{{ ", " if not loop.last }}{% endfor %}{% if not ph.trials %}no replies yet{% endif %}</span>{% endif %}
+      </summary>
+      <div class="pad">
+        {% for t in ph.trials %}
+        <details class="trial">
+          <summary>{% if ph.kind != "uncert" %}Trial {{ t.trial }}: <span class="badge v-{{ t.verdict or 'none' }}">{{ t.verdict or "no verdict" }}</span>{% else %}Reply{% endif %}
+            {% if t.need_defs %}<span class="muted">asked for {{ t.need_defs | join(", ") }}</span>{% endif %}
+            <span class="muted small">{{ t.file }}</span></summary>
+          <div class="md">{{ t.answer | markdown }}</div>
+          {% if t.reasoning %}<details><summary>Reasoning summary</summary><div class="md">{{ t.reasoning | markdown }}</div></details>{% endif %}
+        </details>
+        {% endfor %}
+        {% if ph.prompt %}
+        <details class="trial"><summary>Exact prompt <span class="muted small">{{ ph.query }}</span></summary><pre class="prompt">{{ ph.prompt }}</pre></details>
+        {% endif %}
+      </div>
+    </details>
+    {% endfor %}
+
+    {% if lasaa.definitions %}
+    <details class="pane">
+      <summary>Definitions supplied (need_defs)</summary>
+      <div class="pad">
+        {% for rnd, text in lasaa.definitions %}
+        <h4>Round {{ rnd + 1 }}</h4><pre class="prompt">{{ text }}</pre>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

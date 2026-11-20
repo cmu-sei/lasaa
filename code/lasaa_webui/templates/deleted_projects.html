@@ -1,0 +1,57 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{# The deleted (hidden) projects, each with a Restore button. #}
+{% extends "base.html" %}
+{% block title %}Deleted projects{% endblock %}
+{% block content %}
+<h1>Deleted projects</h1>
+{% if projects %}
+<section class="card">
+  <p class="muted small">Restoring a project puts it back in the project list under its old name (with "(restored)" after it if a newer project has taken the name).</p>
+  <table class="list">
+    <thead><tr><th>Project</th><th>Directory</th><th>Snapshots</th><th>Analyses</th><th></th></tr></thead>
+    <tbody>
+    {% for p in projects %}
+    <tr>
+      <td><a href="/project/{{ p.project_id }}">{{ p.name }}</a></td>
+      <td class="muted">{{ p.origin or "" }}</td>
+      <td class="num">{{ p.n_snaps }}</td>
+      <td class="num">{{ p.n_analyses }}</td>
+      <td><form method="post" action="/project/{{ p.project_id }}/restore" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <button type="submit" class="small">Restore</button></form></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% else %}
+<p class="muted">No deleted projects.</p>
+{% endif %}
+<p><a href="/">Back to the projects</a></p>
+{% endblock %}

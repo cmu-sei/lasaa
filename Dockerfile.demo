@@ -1,0 +1,50 @@
+###################################################################
+#
+# Image for the tinykv demo (examples/tinykv): adds Clang Static
+# Analyzer (scan-build) and Cppcheck to the base LASAA image.
+#
+# To build (if base image is tagged "lasaa"):
+#   docker build -f Dockerfile.demo -t lasaa-demo .
+
+# To build (if base image has a different tag):
+#   docker build -f Dockerfile.demo --build-arg BASE_IMAGE=<base-tag> -t lasaa-demo .
+#
+# To run:
+#   docker run -it --rm -v ${PWD}:/host -w /host lasaa-demo bash
+#
+###################################################################
+# <legal>
+# LASAA tool
+#
+# Copyright 2026 Carnegie Mellon University.
+#
+# NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+# INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+# UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+# TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+# OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+# MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+# WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+#
+# Licensed under a MIT (SEI)-style license, please see License.txt or contact
+# permission@sei.cmu.edu for full terms.
+#
+# [DISTRIBUTION STATEMENT A] This material has been approved for public
+# release and unlimited distribution.  Please see Copyright notice for
+# non-US Government use and distribution.
+#
+# This Software includes and/or makes use of Third-Party Software each subject
+# to its own license.
+#
+# DM26-0426
+# </legal>
+
+ARG BASE_IMAGE=lasaa
+FROM ${BASE_IMAGE}
+
+# Clang and scan-build (large; split out from the base image), and Cppcheck
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
+         clang clang-tools cppcheck \
+    && apt-get --purge -y autoremove \
+    && apt-get clean

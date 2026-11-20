@@ -1,0 +1,93 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{# One project's card: p is app.project_view(). #}
+<section class="card">
+  <h2><a href="/project/{{ p.p.project_id }}">{{ p.p.name }}</a></h2>
+  <p class="muted">{{ p.p.origin }}</p>
+  {% for s in p.snaps %}
+  <div class="snap" id="snap-{{ s.s.snap_id }}">
+    <h3>Snapshot {{ s.s.snap_id }}{% if s.s.label %}: {{ s.s.label }}{% endif %}</h3>
+    <p class="muted">
+      {{ s.s.created_at | replace("T", " ") }}
+      {% if s.s.git_head %} · git {{ s.s.git_head[:10] }}{% endif %}
+      {% if s.s.git_dirty %} · <span class="warn">uncommitted changes</span>{% endif %}
+      {% if s.s.build_command %} · built with <code>{{ s.s.build_command }}</code>:
+        {% if s.s.build_status == "failed" %}<span class="warn">the build failed</span>, {% endif %}
+        {{ s.s.build_units or 0 }} compile command{{ "" if s.s.build_units == 1 else "s" }}
+        {% if not s.s.build_units %}<span class="warn">(nothing for Clang to analyze)</span>{% endif %}
+      {% endif %}
+    </p>
+    {% if s.analyses %}
+    <table class="list">
+      <thead><tr><th>Analysis</th><th>Tools</th><th>Alerts</th><th>LASAA runs</th></tr></thead>
+      <tbody>
+      {% for a in s.analyses %}
+      <tr>
+        <td><a class="button primary nowrap" href="/analysis/{{ a.a.analysis_id }}">View Analysis {{ a.a.analysis_id }}</a>
+          {% if a.a.status != "done" %}<span class="status s-{{ a.a.status }}">{{ a.a.status }}</span>{% endif %}</td>
+        <td>{{ a.tools | join(", ") }}</td>
+        <td class="num">{{ a.a.n_alerts }}</td>
+        <td>
+          {% for r in a.runs %}
+          <div><a href="/run/{{ r.run_id }}">Run {{ r.run_id }}</a>:
+            {{ r.model }}{% if r.effort %} ({{ r.effort }}){% endif %},
+            {{ r.n_done }} adjudicated <span class="status s-{{ r.status }}">{{ r.status }}</span></div>
+          {% endfor %}
+          {% if a.a.status == "done" and a.a.n_alerts %}<div class="run-new"><a class="button nowrap" href="/analysis/{{ a.a.analysis_id }}/run/new">Run LASAA…</a></div>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    <form method="post" action="/snapshot/{{ s.s.snap_id }}/analyze" class="analyze-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <div class="row-form">
+        <label><input type="checkbox" name="clang" value="1"{% if s.s.build_units %} checked{% else %} disabled{% endif %}> Clang Static Analyzer</label>
+        <select name="clang_preset" aria-label="Clang checkers"{% if not s.s.build_units %} disabled{% endif %}>
+          <option value="default">default checkers</option>
+          <option value="security">default + alpha security checkers</option>
+        </select>
+        {% if not s.s.build_units %}<span class="muted small">needs a snapshot made with a build command</span>{% endif %}
+      </div>
+      <div class="row-form">
+        <label><input type="checkbox" name="cppcheck" value="1" checked> cppcheck</label>
+        <select name="cppcheck_preset" aria-label="cppcheck checks">
+          <option value="warnings">warnings</option>
+          <option value="default">warnings + performance</option>
+          <option value="everything">everything (adds style; noisy)</option>
+        </select>
+        <input type="text" name="extra_args" placeholder="extra arguments, e.g. -I include -DNDEBUG" size="36" aria-label="Extra cppcheck arguments">
+        {% if s.s.build_units %}<label><input type="checkbox" name="use_compdb" value="1" checked> use the build's compile commands</label>{% endif %}
+      </div>
+      <div><button class="primary">Run the selected analyzers</button>
+        <span class="muted small">Their alerts go into one analysis.</span></div>
+    </form>
+  </div>
+  {% endfor %}
+</section>

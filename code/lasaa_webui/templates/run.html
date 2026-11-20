@@ -1,0 +1,75 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{% extends "base.html" %}
+{% block title %}Run {{ run.run_id }}{% endblock %}
+{% from "_crumbs.html" import project_crumbs %}
+{% block crumbs %}{{ project_crumbs(proj, snap) }}<span class="crumb"><a href="/analysis/{{ an.analysis_id }}">Analysis {{ an.analysis_id }}</a></span><span class="crumb">Run {{ run.run_id }}</span>{% endblock %}
+{% from "_money.html" import money %}
+{% block content %}
+<h1>Run {{ run.run_id }}: {{ model_label }}{% if run.effort %}, {{ run.effort }} effort{% endif %}
+  <span id="run-badge" class="status s-{{ run.status }}">{{ run.status }}</span></h1>
+<p class="muted">
+  {{ sel.alert_ids | length }} alert{{ "s" if sel.alert_ids | length != 1 }}
+  {% if sel.scope == "sample" %}· a random sample from {{ sel.population }} (seed {{ sel.seed }}){% elif sel.scope == "picked" %}· checked by hand{% endif %}
+  {% for why, n in (sel.skipped or {}).items() %}· {{ n }} left out ({{ why }}){% endfor %}
+  {% if opts %}· N={{ opts.N }}{% if opts.t %}, t={{ opts.t }}/{{ opts.N }}{% endif %}, CC {{ "on" if opts.CC else "off" }}, LRE {{ "on" if opts.LRE else "off" }}{% endif %}
+</p>
+
+<div id="run-status"{% if run.status in ("queued", "running") %} hx-get="/run/{{ run.run_id }}" hx-trigger="every {{ poll_seconds }}s" hx-select="#run-status" hx-select-oob="#run-badge" hx-swap="outerHTML"{% endif %}>
+  <section class="card">
+    <p>
+      <strong>{{ prog.finished }}</strong> of {{ prog.alerts }} alerts finished ·
+      {{ prog.answered }} of {{ prog.queued }} queued trials answered
+      {% if prog.no_prompt %}<br><span class="muted small">{{ prog.no_prompt }} more alert{{ "s" if prog.no_prompt != 1 }} got no prompt (the file is outside the snapshot, or LASAA couldn't find the enclosing function), so {{ "they have" if prog.no_prompt != 1 else "it has" }} no verdict; see the log.</span>{% endif %}
+    </p>
+    <progress max="1" value="{{ '%.4f' | format(prog.fraction) }}" title="{{ (prog.fraction * 100) | round | int }}% done (estimated from the replies so far)"></progress>
+    <p>Spent: {{ money(run.cost) or "" }} {% if run.input_tokens is not none %}<span class="muted">({{ "{:,}".format(run.input_tokens) }} input, {{ "{:,}".format(run.output_tokens or 0) }} output tokens)</span>{% endif %}
+      {% if run.budget is not none %} · budget {{ money(run.budget) }}{% elif run.budget_tokens is not none %} · budget {{ "{:,}".format(run.budget_tokens) }} tokens{% endif %}</p>
+    <p>
+      <a class="button{% if run.status not in ("queued", "running") %} primary{% endif %}" href="/analysis/{{ an.analysis_id }}?run={{ run.run_id }}">See the results</a>
+      {% if job %} <a href="/job/{{ job.job_id }}">Job {{ job.job_id }}</a>{% endif %}
+    </p>
+    {% if job and job.error %}<p class="warn">{{ job.error }}</p>{% endif %}
+    {% if run.status in ("queued", "running") %}
+    <form method="post" action="/run/{{ run.run_id }}/cancel" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button>Cancel</button>
+    </form>
+    {% elif run.status in ("failed", "cancelled", "over-budget", "interrupted") %}
+    <form method="post" action="/run/{{ run.run_id }}/resume" class="row-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      {% if run.budget is not none %}<label>Budget $<input type="text" name="budget" value="{{ run.budget }}" class="short"></label>
+      {% elif run.budget_tokens is not none %}<label>Budget <input type="text" name="budget_tokens" value="{{ run.budget_tokens }}" class="short"> tokens</label>{% endif %}
+      <button class="primary">Resume</button> <span class="muted small">Replies already received are reused.</span>
+    </form>
+    {% endif %}
+  </section>
+  {% if log_tail %}<h3>Log</h3><pre class="log">{{ log_tail }}</pre>{% endif %}
+</div>
+<details class="pane"><summary>Command</summary><pre class="prompt">{{ command }}</pre></details>
+{% endblock %}

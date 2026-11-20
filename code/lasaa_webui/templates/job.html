@@ -1,0 +1,54 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{% extends "base.html" %}
+{% block title %}{{ job.title }}{% endblock %}
+{% from "_crumbs.html" import project_crumbs %}
+{% block crumbs %}{% if proj %}{{ project_crumbs(proj) }}{% endif %}<span class="crumb">Job {{ job.job_id }}</span>{% endblock %}
+{% block content %}
+<h1>{{ job.title }}</h1>
+<div id="job-status"{% if job.status in ("queued", "running") %} hx-get="/job/{{ job.job_id }}" hx-trigger="every 1s" hx-select="#job-status" hx-swap="outerHTML"{% endif %}>
+  <p>
+    <span class="status s-{{ job.status }}">{{ job.status }}</span>
+    <span class="muted small">created {{ job.created_at | replace("T", " ") }}{% if job.finished_at %} · finished {{ job.finished_at | replace("T", " ") }}{% endif %}</span>
+  </p>
+  {% if job.error %}<p class="warn">{{ job.error }}</p>{% endif %}
+  <p>
+    {% if job.run_id %}<a href="/run/{{ job.run_id }}">Run {{ job.run_id }}</a>{% endif %}
+    {% if job.analysis_id and job.status == "done" %}<a class="button primary" href="/analysis/{{ job.analysis_id }}">See the alerts</a>{% endif %}
+    {% if job.kind == "snapshot" and job.status == "done" %}<a class="button primary" href="/project/{{ job.project_id }}#snap-{{ job.snap_id }}">Back to the project, to analyze it</a>{% endif %}
+  </p>
+  {% if job.status in ("queued", "running") %}
+  <form method="post" action="/job/{{ job.job_id }}/cancel" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button>Cancel</button>
+  </form>
+  {% endif %}
+  <h3>Log</h3>
+  <pre class="log">{{ log_tail }}</pre>
+</div>
+{% endblock %}

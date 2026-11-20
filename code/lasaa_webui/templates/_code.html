@@ -1,0 +1,55 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{% macro code_pane(p, snap) %}
+<section class="pane code-pane">
+  <div class="pane-head">
+    <span class="pane-title">{{ p.title }}</span>
+    <span class="pane-links">
+      {% if p.flag %}<a href="#L{{ p.flag }}">Flagged line {{ p.flag }}</a> · {% endif %}
+      <a href="/snapshot/{{ snap.snap_id }}/file/{{ p.file | urlencode }}?line={{ p.flag or p.range[0] }}#L{{ p.flag or p.range[0] }}">Whole file</a>
+      {% if show_editor_links %}· <a href="{{ p.editor }}">Open in editor</a>{% endif %}
+    </span>
+  </div>
+  <table class="code">
+    {% for ln, html in p.rows %}
+    {% if ln is none %}
+    <tr class="gap"><td class="ln"></td><td class="mark"></td><td class="src">{{ html }}</td></tr>
+    {% else %}
+    <tr id="L{{ ln }}" class="{{ 'flagged' if ln == p.flag else '' }}{{ ' step' if ln in p.steps else '' }}">
+      <td class="ln">{{ ln }}</td>
+      <td class="mark">{% for s in p.steps.get(ln, []) %}<span class="step-n">{{ s.n }}</span>{% endfor %}</td>
+      <td class="src">{{ html | safe }}</td>
+    </tr>
+    {% for s in p.steps.get(ln, []) %}{% if s.msg %}
+    <tr class="step-msg"><td class="ln"></td><td class="mark"><span class="step-n">{{ s.n }}</span></td><td class="src">{{ s.msg }}</td></tr>
+    {% endif %}{% endfor %}
+    {% endif %}
+    {% endfor %}
+  </table>
+</section>
+{% endmacro %}

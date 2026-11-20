@@ -1,0 +1,332 @@
+[
+  {
+    "Alert_ID": "3005f4e155d5cf548e4885f883554092",
+    "File": "src/commands.c",
+    "Line": 281,
+    "Tool": "clang-analyzer",
+    "RuleID": "core.NonNullParamChecker",
+    "Function": "cmd_info",
+    "Verdict": "true",
+    "Explanation": "INFO has arity -1, so a bare `INFO` leaves section NULL, and it is passed to strcasecmp() before the NULL case is handled: the server crashes."
+  },
+  {
+    "Alert_ID": "44b62fbd1904cdd7d2e5655c0cfe7cb7",
+    "File": "src/commands.c",
+    "Line": 567,
+    "Tool": "clang-analyzer",
+    "RuleID": "core.uninitialized.Assign",
+    "Function": "cmd_set",
+    "Verdict": "false",
+    "Explanation": "expire_at is read only when o.flags has one of SET_EX|SET_PX|SET_EXAT|SET_PXAT, and in exactly that case set_opts_has_expiry() (cmdutil.c) returned nonzero and expire_at was assigned. Proof needs set_opts_has_expiry's definition."
+  },
+  {
+    "Alert_ID": "0c947920eec4cbd0a7e46a0d",
+    "File": "src/commands.c",
+    "Line": 865,
+    "Tool": "cppcheck",
+    "RuleID": "nullPointerRedundantCheck",
+    "Function": "cmd_getrange",
+    "Verdict": "true",
+    "Explanation": "store_lookup() returns NULL for a missing key, and e->v.str.len is read before the e == NULL check: GETRANGE on a missing key crashes."
+  },
+  {
+    "Alert_ID": "96b67567ec200eefdf5acb5b",
+    "File": "src/commands.c",
+    "Line": 866,
+    "Tool": "cppcheck",
+    "RuleID": "nullPointerRedundantCheck",
+    "Function": "cmd_getrange",
+    "Verdict": "dependent",
+    "Explanation": "Same NULL dereference as line 865 (e->v.str.ptr); it goes away when line 865 is fixed by checking e before use."
+  },
+  {
+    "Alert_ID": "949538658dc62b775e71f182",
+    "File": "src/commands.c",
+    "Line": 1736,
+    "Tool": "cppcheck",
+    "RuleID": "nullPointerRedundantCheck",
+    "Function": "call_command",
+    "Verdict": "false",
+    "Explanation": "c is never NULL: both callers of command_dispatch pass a real client (the AOF replay uses a fake client with CLIENT_FAKE). The later `c != NULL` test is merely defensive."
+  },
+  {
+    "Alert_ID": "25668e14574971562368273a",
+    "File": "src/commands.c",
+    "Line": 1746,
+    "Tool": "cppcheck",
+    "RuleID": "nullPointerRedundantCheck",
+    "Function": "call_command",
+    "Verdict": "false",
+    "Explanation": "Same as line 1736: c is never NULL."
+  },
+  {
+    "Alert_ID": "3613391b3c37aa42954ccb1a16036622",
+    "File": "src/config.c",
+    "Line": 347,
+    "Tool": "clang-analyzer",
+    "RuleID": "core.NullDereference",
+    "Function": "config_get",
+    "Verdict": "true",
+    "Explanation": "find_option() returns NULL for an unknown name that is not a legacy alias, and o->flags is read before the NULL check: `CONFIG GET nosuchoption` crashes."
+  },
+  {
+    "Alert_ID": "0007602ff3f787a231e45fc9fbbbbaf4",
+    "File": "src/config.c",
+    "Line": 518,
+    "Tool": "clang-analyzer",
+    "RuleID": "unix.Malloc",
+    "Function": "parse_value",
+    "Verdict": "true",
+    "Explanation": "An unterminated quoted value frees val and then jumps to `fail`, which frees it again (double free)."
+  },
+  {
+    "Alert_ID": "bd39046b53c7bf0aafb9383b48f12286",
+    "File": "src/config.c",
+    "Line": 601,
+    "Tool": "clang-analyzer",
+    "RuleID": "alpha.unix.Stream",
+    "Function": "load_file",
+    "Verdict": "true",
+    "Explanation": "The 'line too long' error path returns without fclose(fp)."
+  },
+  {
+    "Alert_ID": "ce23abc1576856fc11e5e106e862f858",
+    "File": "src/hashtable.c",
+    "Line": 109,
+    "Tool": "clang-analyzer",
+    "RuleID": "unix.Malloc",
+    "Function": "ht_expand",
+    "Verdict": "true",
+    "Explanation": "The new bucket array is allocated before the rehash-in-progress check, and that check returns -1 without freeing it. Reachable via ht_maybe_resize()."
+  },
+  {
+    "Alert_ID": "35e8b176f09f5e3e3125fc2d",
+    "File": "src/hashtable.c",
+    "Line": 109,
+    "Tool": "cppcheck",
+    "RuleID": "memleak",
+    "Function": "ht_expand",
+    "Verdict": "true",
+    "Explanation": "Same leak as the Clang alert on this line."
+  },
+  {
+    "Alert_ID": "19bb2fd4d92d94263357d3b4",
+    "File": "src/log.c",
+    "Line": 136,
+    "Tool": "cppcheck",
+    "RuleID": "arrayIndexOutOfBoundsCond",
+    "Function": "log_level_name",
+    "Verdict": "true",
+    "Explanation": "The check is off by one (> instead of >=): level == LOG_NLEVELS reads past level_names[]. Reachable: config accepts a numeric loglevel with the same off-by-one, and CONFIG GET loglevel calls log_level_name()."
+  },
+  {
+    "Alert_ID": "0c59fed9357c029be1352628",
+    "File": "src/net.c",
+    "Line": 107,
+    "Tool": "cppcheck",
+    "RuleID": "resourceLeak",
+    "Function": "net_listen",
+    "Verdict": "true",
+    "Explanation": "When bind() fails the function returns without closing the socket."
+  },
+  {
+    "Alert_ID": "d780f04f39c31cff7097f23a6c5b90d9",
+    "File": "src/net.c",
+    "Line": 208,
+    "Tool": "clang-analyzer",
+    "RuleID": "core.UndefinedBinaryOperatorResult",
+    "Function": "net_format_addr",
+    "Verdict": "false",
+    "Explanation": "Clang's path comes through net_accept(): accept() fills in the sockaddr_storage before sa_family is read, but Clang's model of accept() doesn't record the write."
+  },
+  {
+    "Alert_ID": "20ccf5f08f644d540bd02344",
+    "File": "src/persist.c",
+    "Line": 227,
+    "Tool": "cppcheck",
+    "RuleID": "bufferAccessOutOfBounds",
+    "Function": "snapshot_save",
+    "Verdict": "true",
+    "Explanation": "memcpy copies sizeof(SNAP_MAGIC) == 9 bytes (including the NUL) into char magic[8]: a 1-byte out-of-bounds write into the next field (masked only because version is assigned afterwards)."
+  },
+  {
+    "Alert_ID": "e84b9ff5ab421297fc22087b32562d6b",
+    "File": "src/persist.c",
+    "Line": 231,
+    "Tool": "clang-analyzer",
+    "RuleID": "alpha.unix.Stream",
+    "Function": "snapshot_save",
+    "Verdict": "true",
+    "Explanation": "If write_header() fails, the function returns without fclose(w.fp)."
+  },
+  {
+    "Alert_ID": "140d282e9ea507934ae35022",
+    "File": "src/persist.c",
+    "Line": 344,
+    "Tool": "cppcheck",
+    "RuleID": "memleak",
+    "Function": "read_blob",
+    "Verdict": "true",
+    "Explanation": "On a short fread() the function returns -1 without freeing buf."
+  },
+  {
+    "Alert_ID": "a96c547fbb7275be7dd462503d06ce1a",
+    "File": "src/persist.c",
+    "Line": 432,
+    "Tool": "clang-analyzer",
+    "RuleID": "core.UndefinedBinaryOperatorResult",
+    "Function": "snapshot_load",
+    "Verdict": "false",
+    "Explanation": "read_u8() returns 0 only after fread() filled in `type`; Clang doesn't model fread() as writing the buffer."
+  },
+  {
+    "Alert_ID": "9b64f1c4eb6a67af45ecd101fae15455",
+    "File": "src/persist.c",
+    "Line": 646,
+    "Tool": "clang-analyzer",
+    "RuleID": "core.CallAndMessage",
+    "Function": "entry_restore",
+    "Verdict": "false",
+    "Explanation": "validate_list() already walked the same payload with an identical cursor and checked every cur_blob(), so cur_blob() cannot fail here and p is always set."
+  },
+  {
+    "Alert_ID": "3d1bd1c90f964b78192f89e620156ddf",
+    "File": "src/persist.c",
+    "Line": 758,
+    "Tool": "clang-analyzer",
+    "RuleID": "alpha.unix.Stream",
+    "Function": "aof_replay",
+    "Verdict": "false",
+    "Explanation": "The loop stops when fread() returns 0 and ferror() is checked after the loop; calling fread() after a failed read is not undefined behavior and has no harmful effect here."
+  },
+  {
+    "Alert_ID": "40d5fe428fa0e839eb3c1d21e4a6c5a6",
+    "File": "src/persist.c",
+    "Line": 758,
+    "Tool": "clang-analyzer",
+    "RuleID": "alpha.unix.Stream",
+    "Function": "aof_replay",
+    "Verdict": "false",
+    "Explanation": "One extra fread() at EOF just returns 0 and ends the loop; harmless."
+  },
+  {
+    "Alert_ID": "6981eec26ce9f911a781336391acfeeb",
+    "File": "src/protocol.c",
+    "Line": 179,
+    "Tool": "clang-analyzer",
+    "RuleID": "core.UndefinedBinaryOperatorResult",
+    "Function": "parse_bulk_arg",
+    "Verdict": "true",
+    "Explanation": "When parse_len() fails, the error branch sets the message but doesn't return, so the uninitialized length n is compared on the next line."
+  },
+  {
+    "Alert_ID": "1dd51657a392b7f2c8114ca771b4ffaa",
+    "File": "src/protocol.c",
+    "Line": 192,
+    "Tool": "clang-analyzer",
+    "RuleID": "unix.Malloc",
+    "Function": "parse_bulk_arg",
+    "Verdict": "true",
+    "Explanation": "If the trailing CRLF is missing, the function returns PARSE_ERROR without freeing arg. A client can leak memory with malformed requests."
+  },
+  {
+    "Alert_ID": "3466a473904b8f85862d64f0b09bee83",
+    "File": "src/server.c",
+    "Line": 127,
+    "Tool": "clang-analyzer",
+    "RuleID": "unix.Malloc",
+    "Function": "server_find_client",
+    "Verdict": "false",
+    "Explanation": "Clang assumes clients_remove() may fail to find a client that is in the array. Every client with fd >= 0 is in the array (client_create adds it), and client_free removes exactly those, so no freed client stays in the array."
+  },
+  {
+    "Alert_ID": "468b21b77efb0f01acb2624c52df00a9",
+    "File": "src/server.c",
+    "Line": 226,
+    "Tool": "clang-analyzer",
+    "RuleID": "unix.Malloc",
+    "Function": "client_handle_readable",
+    "Verdict": "true",
+    "Explanation": "After client_free(srv, c) the log message reads c->id: use after free on every client disconnect."
+  },
+  {
+    "Alert_ID": "8f22f98ed15486b32be2bfbc1fa3b800",
+    "File": "src/server.c",
+    "Line": 285,
+    "Tool": "clang-analyzer",
+    "RuleID": "core.StackAddressEscape",
+    "Function": "fmt_duration",
+    "Verdict": "true",
+    "Explanation": "Returns a pointer to a local array; server_info() uses it after the function returns."
+  },
+  {
+    "Alert_ID": "96881eb4da59f4a221466529",
+    "File": "src/server.c",
+    "Line": 285,
+    "Tool": "cppcheck",
+    "RuleID": "returnDanglingLifetime",
+    "Function": "fmt_duration",
+    "Verdict": "true",
+    "Explanation": "Same dangling pointer as the Clang alert on this line."
+  },
+  {
+    "Alert_ID": "085a7b96d917edbf1618b93b9108c4c5",
+    "File": "src/server.c",
+    "Line": 394,
+    "Tool": "clang-analyzer",
+    "RuleID": "core.DivideZero",
+    "Function": "server_info",
+    "Verdict": "true",
+    "Explanation": "With an empty keyspace and a verbose INFO section, used_bytes / nkeys divides by zero."
+  },
+  {
+    "Alert_ID": "9bf918f9aa04bdee48cde704d14a8613",
+    "File": "src/server.c",
+    "Line": 560,
+    "Tool": "clang-analyzer",
+    "RuleID": "core.NullDereference",
+    "Function": "run_event_loop",
+    "Verdict": "false",
+    "Explanation": "Clang assumes nclients + 1 can wrap to 0 so that the array is never allocated; nclients is bounded by max_clients."
+  },
+  {
+    "Alert_ID": "70077be38a1e8e6555abdbb414801815",
+    "File": "src/server.c",
+    "Line": 673,
+    "Tool": "clang-analyzer",
+    "RuleID": "unix.Malloc",
+    "Function": "server_shutdown",
+    "Verdict": "false",
+    "Explanation": "Same infeasible assumption as server.c:127: client_free() always removes a client that is in the array, so the loop never sees a freed client."
+  },
+  {
+    "Alert_ID": "639286c2a18763c9f91d946be362cce3",
+    "File": "src/store.c",
+    "Line": 280,
+    "Tool": "clang-analyzer",
+    "RuleID": "core.NullDereference",
+    "Function": "evict_one",
+    "Verdict": "false",
+    "Explanation": "ht_count() > 0 was checked and n >= 1, and ht_random_entry() (hashtable.c) never returns NULL for a nonempty table (it probes only buckets that can hold entries, even mid-rehash), so victim is set. Proof needs ht_random_entry's definition."
+  },
+  {
+    "Alert_ID": "c2d7204456b1ab29138d1764fc0c3813",
+    "File": "src/store.c",
+    "Line": 286,
+    "Tool": "clang-analyzer",
+    "RuleID": "unix.Malloc",
+    "Function": "evict_one",
+    "Verdict": "true",
+    "Explanation": "store_remove_entry() frees victim, and then victim->key and victim->keylen are passed to on_remove: use after free whenever eviction runs with AOF enabled."
+  },
+  {
+    "Alert_ID": "6d863f9732159aa4edb0d3d286536434",
+    "File": "src/store.c",
+    "Line": 361,
+    "Tool": "clang-analyzer",
+    "RuleID": "unix.Malloc",
+    "Function": "store_set_string",
+    "Verdict": "true",
+    "Explanation": "A zero-length value uses the static empty_value buffer; on the out-of-memory path the copy is released with free() instead of free_value(), freeing a non-heap pointer."
+  }
+]

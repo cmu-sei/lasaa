@@ -1,0 +1,57 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{% extends "base.html" %}
+{% block content %}
+{% include "_jobs.html" %}
+
+<h1>Projects</h1>
+{% if projects %}
+<section class="card">
+  <table class="list">
+    <thead><tr><th>Project</th><th>Directory</th><th>Snapshots</th><th>Analyses</th><th>Last snapshot</th></tr></thead>
+    <tbody>
+    {% for p in projects %}
+    <tr>
+      <td><a href="/project/{{ p.project_id }}">{{ p.name }}</a></td>
+      <td class="muted">{{ p.origin or "" }}</td>
+      <td class="num">{{ p.n_snaps }}</td>
+      <td class="num">{{ p.n_analyses }}</td>
+      <td class="nowrap">{{ (p.last_snap or "") | replace("T", " ") }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% else %}
+<p class="muted">No projects yet. Make a snapshot below to start one.</p>
+{% endif %}
+{% if n_deleted %}<p class="small"><a href="/projects/deleted">Deleted projects ({{ n_deleted }})</a></p>{% endif %}
+
+{% include "_new_snapshot.html" %}
+<p class="muted">Displayed price info comes from <tt>model_prices.csv</tt> (last updated 2026-10-25) and may be outdated; edit this file to update price info.  Displayed prices do not reflect things such as extra charges for long context windows or discounts for caching.</p>
+{% endblock %}

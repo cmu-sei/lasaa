@@ -1,0 +1,19 @@
+[
+  {"name": "Llama 3.1 70B (local Ollama)",
+   "model": "llama3.1:70b",
+   "base_url": "http://127.0.0.1:11434/v1",
+   "api_type": "chat_completion",
+   "api_key_name": "OLLAMA_LASAA_KEY",
+   "concurrency": 4},
+  {"name": "gpt-6-luna via our LiteLLM proxy",
+   "model": "gpt-6-luna",
+   "effort": "medium",
+   "base_url": "https://litellm.example.org/v1",
+   "api_type": "response",
+   "api_key_name": "LITELLM_LASAA_KEY"},
+  {"name": "gpt-oss-120b on OpenRouter (crusoe/bf16)",
+   "provider": "OpenRouter",
+   "model": "gpt-oss-120b",
+   "or_endpoint": "crusoe/bf16",
+   "max_output_tokens": 64000}
+]

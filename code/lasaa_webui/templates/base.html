@@ -1,0 +1,78 @@
+<!doctype html>
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="same-origin">
+<meta name="htmx-config" content='{"includeIndicatorStyles": false, "allowEval": false, "allowScriptTags": false, "historyCacheSize": 0}'>
+<title>{% block title %}LASAA{% endblock %}</title>
+<link rel="stylesheet" href="/static/ui.css?v={{ asset_v }}">
+<link rel="stylesheet" href="/static/pygments.css?v={{ asset_v }}">
+<script src="/static/htmx.min.js?v={{ asset_v }}"></script>
+<script src="/static/ui.js?v={{ asset_v }}" defer></script>
+</head>
+<body hx-headers='{{ {"X-CSRF-Token": csrf} | tojson }}' data-page="{% block page %}{% endblock %}">
+<header class="top">
+  <a class="brand" href="/">LASAA</a>
+  {% block crumbs %}{% endblock %}
+  <span class="spacer"></span>
+  {% if blind_toggle %}
+  <form method="post" action="/settings/blind" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="back" value="{{ here }}">
+    <button id="blind-btn" class="toggle{{ ' on' if blind else '' }}" title="Hide LLM verdicts until you review each alert (b)">Blind mode: {{ "on" if blind else "off" }}</button>
+  </form>
+  {% endif %}
+  <a href="/legal">Legal</a>
+  <button id="keys-btn" class="link" type="button" title="Keyboard shortcuts (?)">Keys</button>
+</header>
+<div id="keys" class="keys" hidden>
+  <h2>Keyboard shortcuts</h2>
+  <table>
+    <tr><th>j / k</th><td>Next / previous alert (in the list: move the selection; Enter opens it)</td></tr>
+    <tr><th>x</th><td>In the list: check the selected alert, for a LASAA run</td></tr>
+    <tr><th>c</th><td>Confirm the LLM verdict and go to the next alert</td></tr>
+    <tr><th>t f d u</th><td>Choose true, false, dependent, or uncertain, and go to the note</td></tr>
+    <tr><th>Ctrl+Enter</th><td>Save the review and go to the next alert</td></tr>
+    <tr><th>n</th><td>Go to the note</td></tr>
+    <tr><th>a</th><td>Ask an LLM about the alert (go to the question); Ctrl+Enter sends it</td></tr>
+    <tr><th>[ / ]</th><td>Previous / next trace step</td></tr>
+    {% if show_editor_links %}<tr><th>e</th><td>Open in editor</td></tr>{% endif %}
+    {% if blind_toggle %}<tr><th>b</th><td>Turn blind mode on or off</td></tr>{% endif %}
+    <tr><th>/</th><td>Search the alert list</td></tr>
+    <tr><th>Esc</th><td>Leave a text field; close this help</td></tr>
+    <tr><th>?</th><td>Show or hide this help</td></tr>
+  </table>
+</div>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

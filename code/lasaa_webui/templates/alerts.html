@@ -1,0 +1,149 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{% extends "base.html" %}
+{% block title %}{{ proj.name }}: alerts{% endblock %}
+{% from "_crumbs.html" import project_crumbs %}
+{% block crumbs %}{{ project_crumbs(proj, snap) }}<span class="crumb">Analysis {{ an.analysis_id }}</span>{% endblock %}
+{% block page %}list{% endblock %}
+{% block content %}
+<div class="runbar">
+  {% if run %}
+  <div>
+    <strong>Run {{ run.run_id }}</strong>: {{ run.model }}{% if run.effort %}, effort {{ run.effort }}{% endif %}
+    <span class="muted">({{ run.client }})</span>
+    {% if run_opts %}<span class="muted"> · N={{ run_opts.N }}{% if run_opts.t %}, t={{ run_opts.t }}{% endif %}, CC {{ "on" if run_opts.CC else "off" }}, LRE {{ "on" if run_opts.LRE else "off" }}</span>{% endif %}
+    {% if run.input_tokens is not none %}<span class="muted"> · {{ "{:,}".format(run.input_tokens) }} input / {{ "{:,}".format(run.output_tokens or 0) }} output tokens</span>{% endif %}
+  </div>
+  {% if runs | length > 1 %}
+  <nav class="tabs">Other runs:
+    {% for r in runs %}{% if r.run_id != run.run_id %}
+    <a href="/analysis/{{ an.analysis_id }}?run={{ r.run_id }}">{{ r.run_id }}: {{ r.model }}{% if r.effort %} ({{ r.effort }}){% endif %}</a>
+    {% endif %}{% endfor %}
+  </nav>
+  {% endif %}
+  {% else %}
+  <div class="muted">No LASAA runs for this analysis yet.</div>
+  {% endif %}
+</div>
+{% if blind %}<p class="blind-note">Blind mode is on: LLM verdicts are hidden until you review each alert, and the list is in file order.</p>{% endif %}
+
+<form id="filters" class="filters" method="get" action="/analysis/{{ an.analysis_id }}"
+      hx-get="/analysis/{{ an.analysis_id }}" hx-target="#alerts" hx-select="#alerts"
+      hx-swap="outerHTML" hx-push-url="true" hx-trigger="input delay:300ms, change, submit">
+  {% if run %}<input type="hidden" name="run" value="{{ run.run_id }}">{% endif %}
+  {% if filters.hide_false %}<input type="hidden" name="hide_false" value="1">{% endif %}
+  <input type="search" name="q" placeholder="Search messages, rules, files" value="{{ filters.q or '' }}">
+  {% if not blind and options.verdict %}
+  <select name="verdict" aria-label="Verdict">
+    <option value="">Verdict: any</option>
+    {% for v in options.verdict %}<option value="{{ v }}"{% if filters.verdict == v %} selected{% endif %}>{{ "not adjudicated" if v == "none" else v }}</option>{% endfor %}
+  </select>
+  {% endif %}
+  <select name="review" aria-label="Review">
+    <option value="">Review: any</option>
+    {% for v, label in options.review %}{% if not blind or v in ("unreviewed", "reviewed") %}<option value="{{ v }}"{% if filters.review == v %} selected{% endif %}>{{ label }}</option>{% endif %}{% endfor %}
+  </select>
+  {% for key, label in [("tool", "Tool"), ("rule", "Rule"), ("severity", "Severity")] %}
+  {% if options[key] %}
+  <select name="{{ key }}" aria-label="{{ label }}">
+    <option value="">{{ label }}: any</option>
+    {% for v in options[key] %}<option value="{{ v }}"{% if filters[key] == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+  </select>
+  {% endif %}
+  {% endfor %}
+  <input type="text" name="cwe" placeholder="CWE-476" size="9" value="{{ filters.cwe or '' }}" aria-label="CWE">
+  <input type="text" name="file" placeholder="File or glob" size="14" value="{{ filters.file or '' }}" aria-label="File">
+  <noscript><button>Filter</button></noscript>
+</form>
+
+<div id="alerts">
+  {# Inside #alerts, so that a filter change (an htmx swap) updates the links. #}
+  <div class="actions">
+    <a class="button primary" href="/analysis/{{ an.analysis_id }}/run/new{{ link_qs }}">Run LASAA on {{ ("the " ~ n_shown ~ " matching") if filtered else ("all " ~ total) }} alert{{ "s" if (n_shown if filtered else total) != 1 }}…</a>
+    <form id="pick-form" method="get" action="/analysis/{{ an.analysis_id }}/run/new" class="inline">
+      {% if run %}<input type="hidden" name="run" value="{{ run.run_id }}">{% endif %}
+      <button id="pick-btn" class="primary">Run LASAA on the checked alerts…</button>
+    </form>
+    <span class="exports">Export the alerts below:
+      <a href="/analysis/{{ an.analysis_id }}/export.csv{{ export_qs }}">CSV</a> ·
+      <a href="/analysis/{{ an.analysis_id }}/export.json{{ export_qs }}">adjudications JSON</a>
+      {%- if has_sarif %} ·
+      <a href="/analysis/{{ an.analysis_id }}/export.sarif{{ export_qs }}" title="Clang's SARIF with each verdict in result.properties.lasaa">SARIF{% if multi_tool %} (Clang alerts){% endif %}</a>
+      (<a href="/analysis/{{ an.analysis_id }}/export.sarif{{ export_qs }}{{ '&' if export_qs else '?' }}sup=manual" title="Adds SARIF suppressions for alerts reviewed as false">suppress manual false</a>,
+      <a href="/analysis/{{ an.analysis_id }}/export.sarif{{ export_qs }}{{ '&' if export_qs else '?' }}sup=all" title="Adds SARIF suppressions for alerts reviewed or adjudicated as false">suppress all false</a>)
+      {%- endif %}</span>
+  </div>
+  <p class="counts">
+    {{ n_shown }} of {{ total }} alerts · {{ n_reviewed }} reviewed
+    {% if not blind %}{% for v in ["uncertain", "true", "dependent", "none", "false"] %}{% if counts[v] %}
+    · <span class="badge v-{{ v }}">{{ "not adjudicated" if v == "none" else v }}</span> {{ counts[v] }}
+    {% endif %}{% endfor %}{% endif %}
+  </p>
+  {% set ncols = (8 if blind else 11) + (1 if multi_tool else 0) %}
+  {% macro short(v) %}{{ "dep" if v == "dependent" else v }}{% endmacro %}
+  <table class="list alerts">
+    <thead><tr>
+      <th><span class="sr">Pick</span></th><th>Alert</th>
+      {% if not blind %}<th>Verdict</th><th>Trials</th>{% endif %}<th>Review</th>{% if multi_tool %}<th>Tool</th>{% endif %}
+      <th>Rule</th><th>CWE</th><th>Severity</th><th>Location</th><th>Message</th>{% if not blind %}<th class="num">Tokens</th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for d in rows %}
+    {% set href = "/analysis/" ~ an.analysis_id ~ "/alert/" ~ d.basename ~ link_qs %}
+    <tr data-href="{{ href }}">
+      <td><input type="checkbox" name="pick" value="{{ d.alert_id }}" form="pick-form" aria-label="Pick {{ d.file }}:{{ d.line }}"></td>
+      <td class="aid"><a href="{{ href }}" title="{{ d.alert_id }}">{{ d.alert_id[:8] }}</a></td>
+      {% if not blind %}
+      <td><span class="badge v-{{ d.verdict or 'none' }}"{% if d.verdict == "dependent" %} title="dependent"{% endif %}>{{ short(d.verdict) if d.verdict else "—" }}</span></td>
+      {#- Counts of each verdict wrap after a comma, never inside one. #}
+      <td>{% for part in d.split_short.split(", ") %}<span class="nowrap">{{ part }}</span>{{ "," if not loop.last }} {% endfor %}</td>
+      {% endif %}
+      <td class="nowrap">{% if d.review %}<span class="badge v-{{ d.review.verdict }}"{% if d.review.verdict == "dependent" %} title="dependent"{% endif %}>{{ short(d.review.verdict) }}</span>
+        {% if d.review.verdict == d.verdict %}<span class="muted small" title="Agrees with the LLM">agrees</span>{% elif d.verdict %}<span class="small warn" title="The LLM said {{ d.verdict }}">LLM: {{ short(d.verdict) }}</span>{% endif %}
+        {% else %}<span class="muted">unreviewed</span>{% endif %}</td>
+      {% if multi_tool %}<td class="nowrap">{{ d.tool or "" }}</td>{% endif %}
+      <td class="rule">{{ d.rule | wbr }}</td>
+      <td class="nowrap">{{ d.cwes | join(", ") }}</td>
+      <td>{{ d.severity or "" }}</td>
+      <td class="loc"><a href="{{ href }}">{{ d.file | wbr_path }}:{{ d.line }}</a>{% if d.external %} <span class="tag">external</span>{% endif %}</td>
+      <td class="msg">{{ d.message or "" }}</td>
+      {% if not blind %}<td class="num">{% if d.input_tokens is not none %}{{ "{:,}".format((d.input_tokens or 0) + (d.output_tokens or 0)) }}{% endif %}</td>{% endif %}
+    </tr>
+    {% endfor %}
+    {% if n_false %}
+    <tr class="collapsed-false"><td colspan="{{ ncols }}">
+      <span class="badge v-false">false</span> {{ n_false }} unreviewed alert{{ "s" if n_false != 1 }} adjudicated false {{ "are" if n_false != 1 else "is" }} hidden.
+      <a href="{{ show_false_url }}">Show them</a>
+    </td></tr>
+    {% elif n_false_shown %}
+    <tr class="collapsed-false"><td colspan="{{ ncols }}"><a href="{{ hide_false_url }}">Hide the {{ n_false_shown }} unreviewed alert{{ "s" if n_false_shown != 1 }} adjudicated false</a></td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

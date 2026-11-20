@@ -1,0 +1,50 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{# The run form's buttons.  "Prepare the run" saves a draft run and
+   returns this with its command, budget, and Start button (draft_id). #}
+<div id="run-actions"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <input type="hidden" name="draft" value="{{ draft_id or '' }}">
+  {% if prep_error %}<pre class="error">{{ prep_error }}</pre>{% endif %}
+  <div class="row-form">
+    <button{% if not command %} class="primary"{% endif %} hx-post="/analysis/{{ an.analysis_id }}/runs" hx-target="#run-actions" hx-swap="outerHTML">Prepare the run</button>
+    {% if command %}
+    {% if e.price %}
+    <label>Stop if the cost passes $<input type="text" name="budget" value="{{ budget_default }}" class="short"></label>
+    {% else %}
+    <label>Stop after <input type="text" name="budget_tokens" value="{{ budget_default }}" class="short"> tokens</label>
+    {% endif %}
+    <button class="primary" formaction="/run/{{ draft_id }}/start" formmethod="post">Start the run</button>
+    {% else %}
+    <span class="muted small">Nothing is sent to the LLM until you start the run.</span>
+    {% endif %}
+  </div>
+  {% if command %}
+  <p class="muted small">Run {{ draft_id }} is ready: {{ sel.alert_ids | length }} alert{{ "s" if sel.alert_ids | length != 1 }}.  Changing an option above takes it back.</p>
+  <details class="pane" open><summary>Command</summary><pre class="prompt">{{ command }}</pre></details>
+  {% endif %}
+</div>

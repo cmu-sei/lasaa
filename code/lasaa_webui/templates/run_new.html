@@ -1,0 +1,120 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{% extends "base.html" %}
+{% block title %}Run LASAA: {{ proj.name }}{% endblock %}
+{% from "_crumbs.html" import project_crumbs %}
+{% block crumbs %}{{ project_crumbs(proj, snap) }}<span class="crumb"><a href="/analysis/{{ an.analysis_id }}">Analysis {{ an.analysis_id }}</a></span><span class="crumb">Run LASAA</span>{% endblock %}
+{% block content %}
+<h1>Run LASAA</h1>
+<form method="post" class="stack-form run-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  {% for k, v in filters.items() %}<input type="hidden" name="f_{{ k }}" value="{{ v }}">{% endfor %}
+  {% for p in picks %}<input type="hidden" name="pick" value="{{ p }}">{% endfor %}
+  <div id="run-options" hx-post="/analysis/{{ an.analysis_id }}/estimate" hx-trigger="input delay:300ms" hx-target="#estimate" hx-swap="innerHTML" hx-sync="closest form:replace">
+
+  <fieldset>
+    <legend>Alerts</legend>
+    <p class="muted small">
+      {% if filters %}The alert list's filters match {{ n_matching }} alert{{ "s" if n_matching != 1 }}{% else %}All {{ n_matching }} alerts{% endif %}.
+      {% if filters %}<a href="/analysis/{{ an.analysis_id }}{{ list_qs }}">Change the filters</a>{% endif %}
+    </p>
+    {% if picks %}
+    <label><input type="radio" name="scope" value="picked"{% if form.scope == "picked" %} checked{% endif %}> The {{ picks | length }} alert{{ "s" if picks | length != 1 }} checked in the list</label>
+    {% endif %}
+    <label><input type="radio" name="scope" value="all"{% if form.scope == "all" %} checked{% endif %}> All matching alerts</label>
+    <label><input type="radio" name="scope" value="sample"{% if form.scope == "sample" %} checked{% endif %}> A random sample of
+      <input type="number" name="sample_n" min="1" value="{{ form.sample_n }}" class="short">, seed <input type="number" name="seed" value="{{ form.seed }}" class="short"></label>
+    <label><input type="checkbox" name="skip_reviewed" value="1"{% if form.skip_reviewed %} checked{% endif %}> Leave out alerts you have reviewed</label>
+    <label><input type="checkbox" name="skip_external" value="1"{% if form.skip_external %} checked{% endif %}> Leave out alerts outside the snapshot (e.g. system headers)</label>
+    <label><input type="checkbox" name="skip_done" value="1"{% if form.skip_done %} checked{% endif %}> Leave out alerts this model has already adjudicated (to sample new ones)</label>
+    {% if fields_for_llm %}<p class="muted small">The LLM sees only these alert fields (set when the analysis was imported): <code>{{ fields_for_llm }}</code></p>{% endif %}
+  </fieldset>
+
+  <fieldset class="model-panel">
+    <legend>Model</legend>
+    {% include "_model_choice.html" %}
+    <div class="custom-model" data-show-custom>
+      <label>Provider
+        <select name="provider">{% for p in providers %}<option{% if form.provider == p %} selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+      <label>Model name <input type="text" name="custom_model" value="{{ form.custom_model }}" placeholder="e.g. gpt-6-luna, claude-sonnet-5-5"></label>
+      <label data-providers="Other">Base URL <input type="text" name="base_url" value="{{ form.base_url }}" placeholder="https://host/v1" size="30"></label>
+      <label data-providers="Other">API type
+        <select name="api_type">{% for t in api_types %}<option value="{{ t }}"{% if form.api_type == t %} selected{% endif %}>{{ t or "default" }}</option>{% endfor %}</select></label>
+      <label data-providers="Other">API key variable <input type="text" name="api_key_name" value="{{ form.api_key_name }}" placeholder="MYHOST{{ key_suffix }}">
+        <span class="muted small">an environment variable of the server's, named &hellip;{{ key_suffix }}</span></label>
+      <label data-providers="OpenRouter">Endpoint <input type="text" name="or_endpoint" value="{{ form.or_endpoint }}" placeholder="e.g. crusoe/bf16">
+        <span class="muted small">required; test the connection with it empty to list them</span></label>
+      <label data-providers="Fireworks|OpenRouter">Max output tokens <input type="number" name="max_output_tokens" min="1" value="{{ form.max_output_tokens }}" placeholder="{{ default_cap }}" class="short">
+        <span class="muted small">raising it later asks again the replies cut short</span></label>
+    </div>
+    <div class="row-form" data-providers="AWS Bedrock">
+      <label>Region
+        <select name="region">{% for r in regions %}<option{% if form.region == r %} selected{% endif %}>{{ r }}</option>{% endfor %}<option value="custom"{% if form.region == "custom" %} selected{% endif %}>another…</option></select></label>
+      <input type="text" name="region_custom" value="{{ form.region_custom }}" placeholder="e.g. eu-west-1" class="short" data-custom-of="region" aria-label="Region">
+      <label>Model prefix
+        <select name="prefix">
+          <option value="auto"{% if form.prefix == "auto" %} selected{% endif %}>from the region</option>
+          {% for x in prefixes %}<option{% if form.prefix == x %} selected{% endif %}>{{ x }}</option>{% endfor %}
+          <option value="none"{% if form.prefix == "none" %} selected{% endif %}>none</option>
+          <option value="custom"{% if form.prefix == "custom" %} selected{% endif %}>another…</option>
+        </select></label>
+      <input type="text" name="prefix_custom" value="{{ form.prefix_custom }}" placeholder="e.g. eu." class="short" data-custom-of="prefix" aria-label="Model prefix">
+    </div>
+    <label>Reasoning effort
+      <select name="effort">{% for e in efforts %}<option value="{{ e }}"{% if form.effort == e %} selected{% endif %}>{{ e or "the client's default" }}</option>{% endfor %}</select></label>
+    <label data-providers="OpenAI"><input type="checkbox" name="flex" value="1"{% if form.flex %} checked{% endif %}> Flex tier
+      <span class="muted small">This provides slower responses at lower cost (not reflected in the cost estimate below).</span></label>
+    <label>Concurrency <input type="number" name="concurrency" min="1" max="1000" value="{{ form.concurrency }}" class="short">
+      <span class="muted small">queries sent at once</span></label>
+    <p class="muted small key-status">
+      {% for p, var in [("OpenAI", "OPENAI_API_KEY"), ("Fireworks", "FIREWORKS_API_KEY"), ("Gemini", "GEMINI_API_KEY"), ("OpenRouter", "OPENROUTER_API_KEY")] %}
+      <span data-providers="{{ p }}">{% if key_status[p] %}{{ var }} is set.{% else %}<span class="warn">{{ var }} isn't set in the server's environment.</span>{% endif %}</span>
+      {% endfor %}
+      <span data-providers="AWS Bedrock">{% if key_status["AWS Bedrock"] %}AWS credentials found.{% else %}<span class="warn">No AWS credentials in the environment or ~/.aws (an instance role may still work).</span>{% endif %}</span>
+    </p>
+    <div class="llm-test" data-no-estimate>
+      <div class="row-form">
+        <label>Test the connection <input type="text" name="test_prompt" value="{{ test_prompt }}" size="34"></label>
+        <button type="button" hx-post="/llm-test" hx-target="#llm-test-result" hx-indicator="#llm-test-sending" hx-disabled-elt="this">Send</button>
+        <span id="llm-test-sending" class="muted small sending">Waiting for the model&hellip;</span>
+      </div>
+      <div id="llm-test-result"></div>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Mistake mitigation</legend>
+    <label>Trials per phase <input type="number" name="n" min="1" max="99" value="{{ form.n }}" class="short"></label>
+    <label><input type="checkbox" name="cc" value="1"{% if form.cc %} checked{% endif %}> Consistency check, threshold <input type="text" name="threshold" value="{{ form.threshold }}" class="short"> <span class="muted small">(80%, 0.8, or a count like 2/3)</span></label>
+    <label><input type="checkbox" name="lre" value="1"{% if form.lre %} checked{% endif %}> LLM reasoning evaluation (LRE)</label>
+  </fieldset>
+  </div>
+  <section class="card" id="estimate">{% include "_estimate.html" %}</section>
+  {% include "_run_actions.html" %}
+</form>
+{% endblock %}

@@ -2,7 +2,9 @@
 
 <legal>
 LASAA tool
+
 Copyright 2026 Carnegie Mellon University.
+
 NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
 INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
 UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
@@ -10,13 +12,17 @@ TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
 OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
 MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
 WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
 Licensed under a MIT (SEI)-style license, please see License.txt or contact
 permission@sei.cmu.edu for full terms.
+
 [DISTRIBUTION STATEMENT A] This material has been approved for public
 release and unlimited distribution.  Please see Copyright notice for
 non-US Government use and distribution.
+
 This Software includes and/or makes use of Third-Party Software each subject
 to its own license.
+
 DM26-0426
 </legal>
 
@@ -116,9 +122,9 @@ different endpoint):
     Wrote reply to 'example.reply'.
 
     root@9c7f3fbed57d:/host/code# cat example.reply
-    # Model: o4-mini-2025-04-16, reasoning_tokens: 64, output tokens: 129
+    # Model: gpt-6-luna, reasoning_effort='default', input_tokens: 13, cached_input_tokens: 0, reasoning_tokens: 0, output_tokens: 6
 
-    The capital of France is Paris.
+    Paris.
 
 ## Choosing an LLM endpoint
 
@@ -216,6 +222,14 @@ from `getenv` flows into the `strcpy`.  See `code/lasaa_alert_format.txt` for
 info on how LASAA identifies which functions to show as extra context, and
 see `out_flow_example/flow-example-001.final_answer` for the resulting verdict.
 
+### A larger example (tinykv):
+
+`examples/tinykv` is a small key-value server (about 10k lines of C,
+LLM-generated) with a mix of deliberate defects and code that static analyzers
+misjudge.  Its demo runs Clang Static Analyzer and Cppcheck on it, adjudicates
+the resulting 33 alerts with LASAA, and scores the verdicts against a
+ground-truth file.  See [examples/tinykv/lasaa_demo/README.md](examples/tinykv/lasaa_demo/README.md) for the steps.
+
 ## Rerunning with different options
 
 Suppose you just ran the following:
@@ -258,3 +272,13 @@ file by recomputing the hash and finding a matching `Alert_ID` in the
 adjudications file.  As a consequence of this, if a base directory is specified
 with `-b` when converting from SARIF to LASAA's input format, the same base
 directory must be specified when updating the SARIF file.
+
+## Web UI
+
+LASAA has a local, single-user web UI (`code/lasaa_webui`) for running LASAA
+and viewing its results.  It takes a snapshot of the code (optionally building
+it), runs Cppcheck and/or Clang Static Analyzer, runs LASAA on some or all of
+the alerts (with a cost estimate and a budget), and lets you browse the alerts
+with LASAA's explanations and confirm or override each verdict.
+See [`code/lasaa_webui/README.md`](code/lasaa_webui/README.md) for how to run it and a walkthrough with tinykv.
+

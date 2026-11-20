@@ -1,0 +1,125 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{# "Ask an LLM" on the alert page (chat.py).  htmx swaps the whole section:
+   every form posts to chat.url and gets the section back; while a question
+   is pending, the section polls itself. #}
+{% from "_money.html" import money %}
+{% macro hidden_fields(op, chat_id=none) %}
+  <input type="hidden" name="op" value="{{ op }}">
+  <input type="hidden" name="run" value="{{ chat.run_id or '' }}">
+  {% if chat_id is not none %}<input type="hidden" name="chat" value="{{ chat_id }}">{% endif %}
+{% endmacro %}
+{% if chat %}
+{% set swap = 'hx-target="#chat" hx-swap="outerHTML"' | safe %}
+{% set base = chat.url ~ "?run=" ~ (chat.run_id or "") %}
+<section class="pane pad chat" id="chat"{% if chat.pending %} hx-get="{{ base }}&open={{ chat.open.chat_id }}" hx-trigger="every 1s" {{ swap }}{% endif %}>
+  <h2>Ask an LLM</h2>
+  {% if chat.msg %}<p class="warn">{{ chat.msg }}</p>{% endif %}
+  {% if chat.open %}
+  {% set ch = chat.open %}
+  <p class="muted small">{{ ch.model_label }} · about run {{ ch.run_id }} · started {{ ch.created_at | replace("T", " ") }}</p>
+  {% for t in chat.turns %}
+  <div class="chat-q"><div class="who">You</div><div class="md">{{ t.question | markdown }}</div></div>
+  <div class="chat-a">
+    <div class="who">LLM</div>
+    {% if t.status == "pending" %}
+    <form hx-post="{{ chat.url }}" {{ swap }} class="row-form">
+      {{ hidden_fields("cancel", ch.chat_id) }}
+      <span class="muted">Waiting for the answer… {{ t.elapsed }} s</span>
+      <button class="small">Cancel</button>
+    </form>
+    {% elif t.status == "done" %}
+    {% if t.answer %}<div class="md">{{ t.answer | markdown }}</div>{% else %}<p class="muted">(The reply was empty.)</p>{% endif %}
+    {% if t.truncated %}<p class="warn small">(Cut off at the output-token limit.)</p>{% endif %}
+    {% if t.reasoning %}<details><summary>Reasoning summary</summary><div class="md">{{ t.reasoning | markdown }}</div></details>{% endif %}
+    {% if t.input_tokens is not none %}
+    <p class="muted small">{{ t.model or "" }}: {{ "{:,}".format(t.input_tokens) }} input tokens{% if t.cached_input_tokens %} ({{ "{:,}".format(t.cached_input_tokens) }} cached){% endif %}, {{ "{:,}".format(t.output_tokens or 0) }} output tokens{% if t.cost is not none %} · {{ money(t.cost) }}{% endif %}</p>
+    {% endif %}
+    {% else %}
+    <p class="warn">{{ {"failed": "No answer: the request failed.", "cancelled": "Cancelled.",
+                        "interrupted": "No answer: the server restarted while waiting for it."}.get(t.status, t.status) }}</p>
+    {% if t.error %}<details><summary>The client's output</summary><pre class="log">{{ t.error }}</pre></details>{% endif %}
+    {% if loop.last %}
+    <form hx-post="{{ chat.url }}" {{ swap }} class="inline">
+      {{ hidden_fields("retry", ch.chat_id) }}
+      <button class="small">Try again</button>
+    </form>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% if not chat.pending %}
+  <form hx-post="{{ chat.url }}" {{ swap }} data-chat>
+    {{ hidden_fields("ask", ch.chat_id) }}
+    <label for="chat-question">Follow-up question <kbd>a</kbd></label>
+    <textarea id="chat-question" name="question" rows="3" required>{{ chat.question }}</textarea>
+    <div class="buttons"><button class="primary">Ask <kbd>Ctrl+Enter</kbd></button></div>
+  </form>
+  {% endif %}
+  <details class="trial"><summary>What the first question was sent with</summary><pre class="prompt">{{ ch.context }}</pre></details>
+  <div class="row-form">
+    <button type="button" class="link" hx-get="{{ base }}" {{ swap }}>Close</button>
+    <form hx-post="{{ chat.url }}" {{ swap }} class="inline" hx-confirm="Delete this conversation?">
+      {{ hidden_fields("delete", ch.chat_id) }}
+      <button class="link">Delete this conversation</button>
+    </form>
+  </div>
+  {% elif chat.can_start %}
+  <form hx-post="{{ chat.url }}" {{ swap }} data-chat>
+    {{ hidden_fields("new") }}
+    <label>Model
+      <select name="model_key">
+        <optgroup label="Ready-made">
+          {% for m in chat.ready_models %}<option value="{{ m.key }}"{% if m.key == chat.model_key %} selected{% endif %}>{{ m.label }}</option>{% endfor %}
+        </optgroup>
+        {% if chat.saved_models %}<optgroup label="Saved configs">
+          {% for m in chat.saved_models %}<option value="{{ m.key }}"{% if m.key == chat.model_key %} selected{% endif %}>{{ m.label }}</option>{% endfor %}
+        </optgroup>{% endif %}
+      </select>
+    </label>
+    <label for="chat-question">Question about the alert, the code, or LASAA's answer <kbd>a</kbd></label>
+    <textarea id="chat-question" name="question" rows="3" required>{{ chat.question }}</textarea>
+    <div class="buttons"><button class="primary">Ask <kbd>Ctrl+Enter</kbd></button></div>
+    <p class="muted small">The LLM gets the prompt that LASAA's verdict in run {{ chat.run_id }} came from and LASAA's final answer, then your question.</p>
+  </form>
+  {% else %}
+  <p class="muted">LASAA has no final answer for this alert in this run, so there's nothing new to ask about.</p>
+  {% endif %}
+  {% if chat.chats %}
+  <h3>Conversations ({{ chat.chats | length }})</h3>
+  <ul class="chat-list">
+    {% for x in chat.chats %}
+    <li{% if chat.open and x.chat_id == chat.open.chat_id %} class="current"{% endif %}>
+      <button type="button" class="link" hx-get="{{ base }}&open={{ x.chat_id }}" {{ swap }}>{{ (x.first_question or "(no questions)") | truncate(90) }}</button>
+      <span class="muted small">{{ x.model_label }} · run {{ x.run_id }} · {{ x.created_at[:10] }} · {{ x.n_turns }} question{{ "" if x.n_turns == 1 else "s" }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}

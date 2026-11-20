@@ -1,0 +1,50 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{# The run form's model list, with Save and Delete for saved configs; the
+   /models/save and /models/delete responses replace it.  ui.js shows the
+   fields that go with the chosen model (data-provider, data-spec). #}
+{% macro price(p) %}{% if p %} — ${{ "%.2f" | format(p.input) }} / ${{ "%.2f" | format(p.output) }} per Mtok{% endif %}{% endmacro %}
+<div id="model-choice">
+  <div class="row-form">
+    <label>Model
+      <select name="model_key">
+        {% for m in ready_models %}<option value="{{ m.key }}" data-provider="{{ m.provider }}"{% if form.model_key == m.key %} selected{% endif %}>{{ m.label }}{{ price(m.price) }}</option>{% endfor %}
+        {% if saved_models %}<optgroup label="Saved">
+          {% for m in saved_models %}<option value="{{ m.key }}" data-provider="{{ m.provider }}" data-spec='{{ m.spec | tojson }}'{% if form.model_key == m.key %} selected{% endif %}>{{ m.label }}{{ price(m.price) }}</option>{% endfor %}
+        </optgroup>{% endif %}
+        <option value="custom" data-provider=""{% if form.model_key == "custom" %} selected{% endif %}>Another model or provider…</option>
+      </select></label>
+    <span data-no-estimate class="row-form">
+      <input type="text" name="save_name" class="save-config-name" placeholder="config name (for saving this config)" aria-label="Name for the saved config">
+      <button type="button" class="small" hx-post="/models/save" hx-target="#model-choice" hx-swap="outerHTML">Save config</button>
+      <button type="button" class="small" data-show-saved hx-post="/models/delete" hx-target="#model-choice" hx-swap="outerHTML"
+        hx-confirm="Delete this saved config?  Its cached replies and runs stay.">Delete config</button>
+    </span>
+  </div>
+  {% if model_msg %}<p class="muted small">{{ model_msg }}</p>{% endif %}
+</div>

@@ -1,0 +1,58 @@
+{#
+<legal>
+LASAA tool
+
+Copyright 2026 Carnegie Mellon University.
+
+NO WARRANTY. THIS CARNEGIE MELLON UNIVERSITY AND SOFTWARE ENGINEERING
+INSTITUTE MATERIAL IS FURNISHED ON AN "AS-IS" BASIS. CARNEGIE MELLON
+UNIVERSITY MAKES NO WARRANTIES OF ANY KIND, EITHER EXPRESSED OR IMPLIED, AS
+TO ANY MATTER INCLUDING, BUT NOT LIMITED TO, WARRANTY OF FITNESS FOR PURPOSE
+OR MERCHANTABILITY, EXCLUSIVITY, OR RESULTS OBTAINED FROM USE OF THE
+MATERIAL. CARNEGIE MELLON UNIVERSITY DOES NOT MAKE ANY WARRANTY OF ANY KIND
+WITH RESPECT TO FREEDOM FROM PATENT, TRADEMARK, OR COPYRIGHT INFRINGEMENT.
+
+Licensed under a MIT (SEI)-style license, please see License.txt or contact
+permission@sei.cmu.edu for full terms.
+
+[DISTRIBUTION STATEMENT A] This material has been approved for public
+release and unlimited distribution.  Please see Copyright notice for
+non-US Government use and distribution.
+
+This Software includes and/or makes use of Third-Party Software each subject
+to its own license.
+
+DM26-0426
+</legal>
+#}
+{# The new-snapshot form, filled in for proj if it is given. #}
+<section class="card">
+  <h2>New snapshot</h2>
+  <p class="muted small">Freezes the C, C++, and Java source files (and build files) of a directory on this machine.  To snapshot a commit instead of the working tree, give its hash, tag, or branch.  With a build command, the tree is copied and built first, under <code>bear</code>, so that Clang Static Analyzer (and cppcheck) can use its compile commands; the snapshot then also keeps every file the compiler read, generated ones included.</p>
+  <form method="post" action="/snapshots" class="stack-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    {% if examples %}<div class="row-form">{% for ex in examples %}
+      <button type="button" class="small" data-preset='{{ ex.fill | tojson }}'>Fill in the {{ ex.label }} example</button>{% endfor %}
+      <span class="muted small">(then click &ldquo;Make snapshot&rdquo;)</span></div>{% endif %}
+    <label>Project <input type="text" name="project" required placeholder="name (an existing one adds a snapshot)"{% if proj %} value="{{ proj.name }}"{% endif %}></label>
+    <label>Directory <input type="text" name="origin" required placeholder="/host/path/to/project"{% if proj and proj.origin %} value="{{ proj.origin }}"{% endif %}
+      hx-get="/suggest-build" hx-trigger="{% if proj and proj.origin %}load, {% endif %}change, keyup delay:500ms" hx-target="#build-hint" hx-swap="innerHTML"></label>
+    <fieldset>
+      <legend>Build <span class="muted small">(Clang Static Analyzer needs a build)</span></legend>
+      <label><input type="radio" name="build" value="no" required> Don't build</label>
+      {% if can_build() %}
+      <label><input type="radio" name="build" value="yes" id="build-yes" required> Build with command: <input type="text" name="build_command" id="build-command" placeholder="e.g. make -B -j$(nproc)"></label>
+      {% else %}
+      <label><input type="radio" name="build" value="yes" disabled> Build with command <span class="muted small">(turned off: the server isn't running as root, so a build would run as the server's own user; see the README)</span></label>
+      {% endif %}
+      <div id="build-hint" class="muted small"></div>
+      <p class="warn"><b>Building isn't sandboxed.</b> <span class="small">In the Docker container, the build runs as an unprivileged user that can't read your API keys, but it can access the network.  Build only code whose build process you trust.</span></p>
+    </fieldset>
+    <label><span>Git commit <span class="muted small">(optional)</span></span> <input type="text" name="commit" placeholder="HEAD, v1.2, a1b2c3d…"></label>
+    <label><span>Label <span class="muted small">(optional)</span></span> <input type="text" name="label"></label>
+    <label><span>Leave out <span class="muted small">(globs, space-separated)</span></span> <input type="text" name="exclude" placeholder="tests/* third_party"></label>
+    <div><button class="primary">Make snapshot</button></div>
+  </form>
+  <p class="muted small">Or import an existing alerts file and LASAA output from a shell:
+    <code>./lasaa_webui_import.py --alerts ALERTS.json --src SRC_DIR [--out LASAA_OUT_DIR]</code></p>
+</section>
