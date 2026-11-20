@@ -78,8 +78,8 @@ def main(argv):
     if wrong:
         print("\nAlerts to look at:")
         for g, v in wrong:
-            short_id = g['Alert_ID'][0:6] + "..." + g['Alert_ID'][-3:-1]
-            print(f"  [Alert {short_id}] "
+            alert_id = g['Alert_ID']
+            print(f"  [Alert {alert_id}] "
                   f"{g['File']}:{g['Line']} {g['Tool']} {g['RuleID']}: "
                   f"truth={g['Verdict']}, LASAA={v}")
 
